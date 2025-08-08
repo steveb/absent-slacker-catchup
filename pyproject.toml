@@ -22,6 +22,8 @@ classifiers = [
 dependencies = [
     "requests",
     "beautifulsoup4",
+    "pytz",
+    "ollama",
 ]
 
 [project.optional-dependencies]
