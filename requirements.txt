@@ -1,12 +1,5 @@
-# Production dependencies
-# Add your project dependencies here
-# Example:
-# requests>=2.28.0
-# click>=8.0.0
-
-# Development dependencies (install with: pip install -r requirements-dev.txt) 
-
 requests
 beautifulsoup4
 pytz
 ollama
+piper-tts

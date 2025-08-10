@@ -24,6 +24,7 @@ dependencies = [
     "beautifulsoup4",
     "pytz",
     "ollama",
+    "piper-tts",
 ]
 
 [project.optional-dependencies]
