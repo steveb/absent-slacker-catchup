@@ -25,6 +25,7 @@ dependencies = [
     "pytz",
     "ollama",
     "piper-tts",
+    "markdown",
 ]
 
 [project.optional-dependencies]

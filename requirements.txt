@@ -3,3 +3,4 @@ beautifulsoup4
 pytz
 ollama
 piper-tts
+markdown

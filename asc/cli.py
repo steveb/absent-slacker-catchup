@@ -3,10 +3,13 @@
 import argparse
 import datetime
 import logging
+import re
+import os
 import sys
 from typing import Optional
 import urllib.parse
 import wave
+import webbrowser
 
 from bs4 import BeautifulSoup
 import requests
@@ -25,6 +28,27 @@ logging.basicConfig(
     stream=sys.stderr,
 )
 LOG = logging.getLogger(__name__)
+
+
+class Context:
+    def __init__(self, args):
+        self.args = args
+        self.channel_encoded = urllib.parse.quote(args.channel.lstrip("#"), safe="")
+        self.output_dir = os.path.join(
+            args.output_directory,
+            self.channel_encoded
+            + "-"
+            + datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S"),
+        )
+        os.makedirs(self.output_dir, exist_ok=True)
+        self.messages = []
+        self.nicknames = set()
+        self.chat = ""
+        self.summary = ""
+        self.chat_file = os.path.join(self.output_dir, "chat.txt")
+        self.html_file = os.path.join(self.output_dir, "summary.html")
+        self.wav_filename = "summary.wav"
+        self.wav_file = os.path.join(self.output_dir, self.wav_filename)
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -90,6 +114,16 @@ def create_parser() -> argparse.ArgumentParser:
         default="en_GB-jenny_dioco-medium.onnx",
         help="Piper TTS model to use for generating speech summaries",
     )
+    fetch_parser.add_argument(
+        "--output-directory",
+        default=".",
+        help="Directory to create output directory in",
+    )
+    fetch_parser.add_argument(
+        "--open-browser",
+        action="store_true",
+        help="Open generated HTML file in web browser",
+    )
     # Example command: status
     status_parser = subparsers.add_parser("status", help="Show status information")
 
@@ -99,71 +133,258 @@ def create_parser() -> argparse.ArgumentParser:
 def cmd_fetch(args) -> int:
     """Handle the fetch command"""
     LOG.info(f"Fetching {args.hours} hours from channel {args.channel}!")
-    nicknames = set()
-    messages = get_messages(args, nicknames)
+    context = Context(args)
+    get_messages(context)
     if args.output_type == "CHAT":
-        prev_message = None
-        for message in messages:
-            print(message.format(prev_message, nicknames, verbose=args.verbose))
-            prev_message = message
+        generate_chat(context)
+        generate_html_summary(
+            context, include_chat=True, include_summary=False, include_audio=False
+        )
     elif args.output_type == "SUMMARY":
-        for summary in generate_summary(messages, nicknames, args.summary_model):
-            print(summary, end="", flush=True)
+        generate_chat(context)
+        generate_summary(context)
+        generate_html_summary(
+            context, include_chat=True, include_summary=True, include_audio=False
+        )
     elif args.output_type == "SPEECH_SUMMARY":
-        generate_speech_summary(messages, nicknames, args.summary_model, args.tts_model)
+        generate_chat(context)
+        generate_summary(context)
+        generate_speech_summary(context)
+        generate_html_summary(
+            context, include_chat=True, include_summary=True, include_audio=True
+        )
     else:
         raise ValueError(f"Invalid output type: {args.output_type}")
     return 0
 
 
-def generate_summary(messages, nicknames, model):
-    """Generate a summary of the chat"""
+def generate_chat(context):
+    LOG.debug(f"Generating chat for {context.args.channel}")
     prev_message = None
-    message_string = ""
-    for message in messages:
-        message_string += message.format(prev_message, nicknames)
+    # write to file and print with the verbose argument
+    with open(context.chat_file, "w") as f:
+        for message in context.messages:
+            m = message.format(
+                prev_message, context.nicknames, verbose=context.args.verbose
+            )
+            print(m, end="", flush=True)
+            f.write(m)
+            context.chat += m
+            prev_message = message
+
+    # Generate the chat for the summary
+    context.chat = ""
+    prev_message = None
+    for message in context.messages:
+        m = message.format(prev_message, context.nicknames)
+        context.chat += m
         prev_message = message
 
+
+def generate_summary(context):
+    """Generate a summary of the chat"""
+    LOG.debug(f"Generating summary for {context.args.channel}")
+    model = context.args.summary_model
+    context.summary = ""
+
     prompt = f"""
-    You are an assistant that summarizes chat logs in a very concise manner.
-    Summarize this chat log:
-    {messages}"""
+    You are an assistant that summarizes chat logs.
+    Make a summary of this chat log:
+    {context.chat}"""
     response = ollama.chat(
         model, messages=[{"role": "user", "content": prompt}], stream=True
     )
     for chunk in response:
-        yield chunk["message"]["content"]
+        print(chunk["message"]["content"], end="", flush=True)
+        context.summary += chunk["message"]["content"]
 
 
-
-
-
-
-def generate_speech_summary(messages, nicknames, summary_model, tts_model):
+def generate_speech_summary(context):
     """Generate a speech summary of the chat"""
+    LOG.debug(f"Generating speech summary for {context.args.channel}")
+    tts_model = context.args.tts_model
 
     voice = piper.PiperVoice.load(tts_model)
-    summary_text = ""
-    for summary in generate_summary(messages, nicknames, summary_model):
-        print(summary, end="", flush=True)
-        summary_text += summary
+
+    # Remove any <think></think> blocks from the summary text
+    summary = re.sub(r"<think>.*?</think>", "", context.summary, flags=re.DOTALL)
+    # Replace any astrisk bullet points with hyphens
+    summary = re.sub(r"^\* ", "- ", summary, flags=re.DOTALL)
+    # Remove any other asterisks
+    summary = re.sub(r"\*", "", summary, flags=re.DOTALL)
+    # Remove # from the summary
+    summary = re.sub(r"#", "", summary, flags=re.DOTALL)
+    # Replace a colon with an emdash
+    summary = re.sub(r":", " — ", summary, flags=re.DOTALL)
 
     syn_config = piper.SynthesisConfig(
-        length_scale=1.1,  # slightly slower
-        noise_scale=1.0,  # more audio variation
-        noise_w_scale=1.0,  # more speaking variation
-        normalize_audio=False,  # use raw audio from voice
+        # length_scale=1.1,  # slightly slower
+        # noise_scale=1.0,  # more audio variation
+        # noise_w_scale=1.0,  # more speaking variation
+        # normalize_audio=False,  # use raw audio from voice
     )
-    with wave.open("test.wav", "wb") as wav_file:
-        voice.synthesize_wav(summary_text, wav_file, syn_config=syn_config)
+    with wave.open(context.wav_file, "wb") as wav_file:
+        voice.synthesize_wav(summary, wav_file, syn_config=syn_config)
 
-def get_messages(args, nicknames):
 
+def generate_html_summary(
+    context, include_chat=False, include_summary=False, include_audio=False
+):
+    """Generate a HTML document with text and embedded audio player"""
+    # Convert markdown to HTML
+    import markdown
+
+    # replace any <think></think> tags with <i></i>
+    summary_text = re.sub(
+        r"<think>(.*?)</think>", r"<i>\1</i>", context.summary, flags=re.DOTALL
+    )
+    html_summary = markdown.markdown(summary_text, extensions=["nl2br", "fenced_code"])
+    with open(context.html_file, "w") as f:
+        f.write(
+            f"""
+<html>
+<head>
+    <title>Chat Summary for {context.channel_encoded}</title>
+        """
+        )
+        f.write(
+            """
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f8f9fa;
+            color: #333;
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+        audio {
+            width: 100%;
+            margin: 20px 0;
+        }
+        pre {
+            background-color: #f4f4f4;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            overflow-x: auto;
+            font-size: 14px;
+        }
+        i {
+            color: #7f8c8d;
+            font-style: italic;
+        }
+        p {
+            margin-bottom: 16px;
+        }
+        ul, ol {
+            margin-bottom: 16px;
+            padding-left: 30px;
+        }
+        li {
+            margin-bottom: 8px;
+        }
+        code {
+            background-color: #f1f2f6;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+        }
+        table.irclog {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        table.irclog th, table.irclog td {
+            padding: 8px;
+            text-align: left;
+            vertical-align: top;
+        }
+        table.irclog td.nick {
+            font-weight: bold;
+            text-align: right;
+        }
+    </style>
+</head>
+<body>
+        """
+        )
+        f.write(
+            f"""
+    <h1>Chat Summary for {context.channel_encoded} on {context.messages[0].timestamp.strftime("%Y-%m-%d")}</h1>
+        """
+        )
+
+        if include_audio:
+            f.write(
+                f"""
+    <h2>Audio Summary</h2>
+    <audio src="{context.wav_filename}" controls></audio>
+            """
+            )
+        if include_summary:
+            f.write(
+                f"""
+    <h2>Summary</h2>
+    {html_summary}
+            """
+            )
+
+        if include_chat:
+            f.write(
+                f"""
+    <h2>Chat</h2>
+    <table class="irclog">
+            """
+            )
+            for message in context.messages:
+                f.write(
+                    f"""
+        <tr id="{message.timestamp}">
+            <td class="time">{message.timestamp.strftime("%H:%M")}</td>
+            <td class="nick">{message.nickname}</th>
+            <td class="text">{message.text}</td>
+        </tr>
+                """
+                )
+            f.write(
+                """
+    </table>
+            """
+            )
+        f.write(
+            """
+</body>
+</html>
+        """
+        )
+    LOG.info(f"Generated HTML summary in {context.html_file}")
+    if context.args.open_browser:
+        webbrowser.open(context.html_file)
+
+
+def get_messages(context):
+
+    LOG.debug(
+        f"Getting messages for {context.args.channel} from {context.args.hours} hours ago"
+    )
+    args = context.args
+    nicknames = context.nicknames
     now = pytz.timezone(args.timezone).localize(datetime.datetime.now())
     now_utc = now.astimezone(pytz.utc).replace(tzinfo=None)
 
     cutoff_time = now_utc - datetime.timedelta(hours=args.hours)
-    messages = []
+    messages = context.messages
 
     day = cutoff_time.replace(hour=0, minute=0, second=0, microsecond=0)
     while True:
