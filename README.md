@@ -1,6 +1,8 @@
 # Absent Slacker Catchup (ASC)
 
-A command line tool for absent slacker catchup.
+A command line tool to summarize the previous hours of an OpenStack IRC channel.
+
+This tool supports any channel which is archived at https://meetings.opendev.org/irclogs/
 
 ## Installation
 
@@ -33,48 +35,8 @@ asc --help
 # Show version
 asc --version
 
-# Say hello
-asc hello
-asc hello "Your Name"
-
-# Show status
-asc status
-
-# Enable verbose output
-asc -v status
-```
-
-## Development
-
-### Running Tests
-
-```bash
-pytest
-```
-
-### Code Formatting
-
-```bash
-black asc/
-```
-
-### Type Checking
-
-```bash
-mypy asc/
-```
-
-## Project Structure
+# Summarize the last 14 hours of the IRC channel #openstack-ironic, generate an audio file
+# reading the summary, and open a browser with the resulting generated page.
+asc fetch --hours 14 --output-type SPEECH_SUMMARY --open-browser "#openstack-ironic"
 
 ```
-absent-slacker-catchup/
-├── asc/                    # Main package
-│   ├── __init__.py        # Package initialization
-│   ├── __main__.py        # Module entry point
-│   └── cli.py             # Command line interface
-├── tests/                 # Test files
-├── pyproject.toml         # Project configuration
-├── requirements.txt       # Production dependencies
-├── requirements-dev.txt   # Development dependencies
-└── README.md             # This file
-``` 
