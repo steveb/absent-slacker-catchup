@@ -188,9 +188,16 @@ def generate_summary(context):
     context.summary = ""
 
     prompt = f"""
-    You are an assistant that summarizes chat logs.
-    Make a summary of this chat log:
-    {context.chat}"""
+    You are an assistant that summarizes chat logs without additional commentary.
+    Use exclusively they/them pronouns when referring to people in this chat log.
+    Always reply in English.
+    Summarize the following chat log, do not include any other text in your response:
+
+    <chat>
+    {context.chat}
+    </chat>
+    """
+
     response = ollama.chat(
         model, messages=[{"role": "user", "content": prompt}], stream=True
     )
@@ -206,21 +213,21 @@ def generate_speech_summary(context):
 
     voice = piper.PiperVoice.load(tts_model)
 
-    # Remove any <think></think> blocks from the summary text
-    summary = re.sub(r"<think>.*?</think>", "", context.summary, flags=re.DOTALL)
+    # Split the summary on </think> choose the last part
+    summary = re.split(r"</think>", context.summary, flags=re.DOTALL)[-1]
     # Replace any astrisk bullet points with hyphens
     summary = re.sub(r"^\* ", "- ", summary, flags=re.DOTALL)
     # Remove any other asterisks
     summary = re.sub(r"\*", "", summary, flags=re.DOTALL)
     # Remove # from the summary
     summary = re.sub(r"#", "", summary, flags=re.DOTALL)
-    # Replace a colon with an emdash
-    summary = re.sub(r":", " — ", summary, flags=re.DOTALL)
+    # Replace any other punctuation with a full stop
+    summary = re.sub(r"[^\w\s,] ", ". ", summary, flags=re.DOTALL)
 
     syn_config = piper.SynthesisConfig(
         # length_scale=1.1,  # slightly slower
         # noise_scale=1.0,  # more audio variation
-        # noise_w_scale=1.0,  # more speaking variation
+        noise_w_scale=1.0,  # more speaking variation
         # normalize_audio=False,  # use raw audio from voice
     )
     with wave.open(context.wav_file, "wb") as wav_file:
@@ -234,11 +241,16 @@ def generate_html_summary(
     # Convert markdown to HTML
     import markdown
 
-    # replace any <think></think> tags with <i></i>
+    # Split the summary on </think>
+    summary_parts = re.split(r"</think>", context.summary, flags=re.DOTALL)
     summary_text = re.sub(
         r"<think>(.*?)</think>", r"<i>\1</i>", context.summary, flags=re.DOTALL
     )
-    html_summary = markdown.markdown(summary_text, extensions=["nl2br", "fenced_code"])
+    html_thinking = "<i>"
+    for part in summary_parts[:-1]:
+        html_thinking += f"<p>{part}</p>"
+    html_thinking += "</i>"
+    html_summary = markdown.markdown(summary_parts[-1], extensions=["nl2br", "fenced_code"])
     with open(context.html_file, "w") as f:
         f.write(
             f"""
@@ -337,6 +349,8 @@ def generate_html_summary(
                 f"""
     <h2>Summary</h2>
     {html_summary}
+    <h2>Thinking</h2>
+    {html_thinking}
             """
             )
 

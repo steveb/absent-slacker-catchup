@@ -25,7 +25,7 @@ class Message:
     ) -> str:
         """Format the message with the previous message"""
         msg = self.text
-        context = f"\n{self.nickname} said:\n"
+        context = f"\n\n{self.nickname} said:\n"
 
         if verbose:
             timestamp = f"\n{self.timestamp}"
@@ -47,7 +47,7 @@ class Message:
                 break
 
         if replied:
-            context = f"\n{self.nickname} replied to {replied}:\n"
+            context = f"\n\n{self.nickname} replied to {replied}:\n"
         return f"{timestamp}{context}{msg}"
 
     def __str__(self) -> str:
