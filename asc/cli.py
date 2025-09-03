@@ -191,7 +191,7 @@ def generate_summary(context):
     You are an assistant that summarizes chat logs without additional commentary.
     Use exclusively they/them pronouns when referring to people in this chat log.
     Always reply in English.
-    Summarize the following chat log, do not include any other text in your response:
+    Summarize the following chat log:
 
     <chat>
     {context.chat}
