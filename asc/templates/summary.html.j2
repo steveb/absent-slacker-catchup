@@ -48,7 +48,7 @@
 <div class="summary">{{ summary_html | safe }}</div>
 {% if thinking %}
 <h2>Thinking</h2>
-<i>{{ thinking }}</i>
+<i class="thinking">{{ thinking_html }}</i>
 {% endif %}
 {% endif %}
 
@@ -60,7 +60,7 @@
   <tr id="{{ message.anchor }}"{% if message.ignored %} class="ignored"{% endif %}>
     <th>{{ message.time }}</th>
     <td class="nick">{{ message.nickname }}</td>
-    <td class="text">{{ message.text }}</td>
+    <td class="text">{{ message.text_html }}</td>
   </tr>
 {%- endfor %}
 </table>

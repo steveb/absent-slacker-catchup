@@ -24,6 +24,9 @@ make run          # writes output/<channel>-<timestamp>/ and opens the page
 - Writes a self-contained HTML page and the plain text transcript of the
   window. With `--output-type SUMMARY` it adds an LLM summary; with
   `SPEECH_SUMMARY` it also synthesizes a WAV file.
+- Hyperlinks bare `http(s)://` URLs in the transcript, the summary and the
+  model's reasoning. The text is HTML-escaped first, so a link cannot inject
+  markup, and links inside code blocks are left alone.
 - Reports partial failures (a failed log fetch, the endpoint being down, a missing
   voice model) in the page and via the exit status instead of a traceback:
   the dashboard is still written with whatever was available.

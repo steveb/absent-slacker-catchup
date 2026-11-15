@@ -43,6 +43,46 @@ def test_chat_text_is_escaped(cfg):
     assert "mallory" in html
 
 
+def test_chat_urls_are_hyperlinked(cfg):
+    log = ChatLog(
+        channel="#openstack-ironic",
+        window_start=START,
+        window_end=END,
+        messages=[
+            Message(
+                timestamp=datetime(2026, 11, 15, 10, 0, tzinfo=timezone.utc),
+                nickname="alice",
+                text="review at https://review.opendev.org/c/openstack/ironic/+/1",
+            )
+        ],
+        nicknames={"alice"},
+    )
+
+    html = render_page(Report(log=log), cfg)
+
+    assert '<a href="https://review.opendev.org/c/openstack/ironic/+/1"' in html
+
+
+def test_summary_urls_are_hyperlinked(cfg):
+    html = render_page(
+        make_report(summary="see https://bugs.launchpad.net/ironic/+bug/1"),
+        cfg,
+        include_summary=True,
+    )
+
+    assert '<a href="https://bugs.launchpad.net/ironic/+bug/1">' in html
+
+
+def test_thinking_urls_are_hyperlinked(cfg):
+    html = render_page(
+        make_report(summary="done", thinking="checked https://example.com/build/1"),
+        cfg,
+        include_summary=True,
+    )
+
+    assert '<a href="https://example.com/build/1"' in html
+
+
 def test_summary_markdown_is_rendered(cfg):
     html = render_page(
         make_report(summary="* one\n* two", thinking="because"),

@@ -43,9 +43,14 @@ pre {
   font-size: 14px;
 }
 
-i {
+i,
+.thinking {
   color: #7f8c8d;
   font-style: italic;
+}
+
+.thinking {
+  white-space: pre-wrap;
 }
 
 p {
@@ -113,4 +118,8 @@ table.irclog tr:target {
 table.irclog tr.ignored td,
 table.irclog tr.ignored th {
   color: #95a5a6;
+}
+
+table.irclog td.text {
+  overflow-wrap: anywhere;
 }

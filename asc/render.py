@@ -11,6 +11,7 @@ import markdown
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from .config import Config
+from .links import linkify_markdown, linkify_text
 from .models import Report
 from .timeutil import format_local
 
@@ -29,8 +30,10 @@ def _environment() -> Environment:
 
 
 def summary_to_html(summary: str) -> str:
-    """Convert the markdown answer into HTML."""
-    return markdown.markdown(summary, extensions=["nl2br", "fenced_code"])
+    """Convert the markdown answer into HTML, hyperlinking bare URLs."""
+    return markdown.markdown(
+        linkify_markdown(summary), extensions=["nl2br", "fenced_code"]
+    )
 
 
 def build_context(
@@ -54,9 +57,13 @@ def build_context(
         "human_message_count": len(log.human_messages),
         "ignored_message_count": len(log.ignored_messages),
         "nickname_count": len(log.human_nicknames),
-        "messages": [message.view() for message in log.messages],
+        "messages": [
+            {**message.view(), "text_html": linkify_text(message.text)}
+            for message in log.messages
+        ],
         "summary_html": summary_to_html(report.summary),
         "thinking": report.thinking,
+        "thinking_html": linkify_text(report.thinking),
         "errors": report.errors,
         "include_summary": include_summary,
         "include_chat": include_chat,
