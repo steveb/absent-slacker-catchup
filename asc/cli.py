@@ -30,6 +30,26 @@ from .tts import TtsError, clean_for_speech, synthesize
 LOG = logging.getLogger("asc")
 
 
+def _logging_options() -> argparse.ArgumentParser:
+    """Return the ``-v``/``-q`` flags, usable before or after the subcommand."""
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=argparse.SUPPRESS,
+        help="increase logging verbosity",
+    )
+    common.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="only print errors",
+    )
+    return common
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="asc",
@@ -37,6 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Summarize the previous hours of an OpenStack IRC channel archived "
             "at https://meetings.opendev.org/irclogs/"
         ),
+        parents=[_logging_options()],
     )
     parser.add_argument(
         "--config",
@@ -44,24 +65,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="TOML config file (default: ./config.toml when present)",
     )
-    parser.add_argument(
-        "-v",
-        "--verbose",
-        action="count",
-        default=0,
-        help="increase logging verbosity",
-    )
-    parser.add_argument(
-        "-q",
-        "--quiet",
-        action="store_true",
-        help="only print errors",
-    )
     parser.add_argument("--version", action="version", version=f"asc {__version__}")
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
-    fetch = subparsers.add_parser("fetch", help="Summarize a channel from the IRC logs")
+    fetch = subparsers.add_parser(
+        "fetch",
+        help="Summarize a channel from the IRC logs",
+        parents=[_logging_options()],
+    )
     fetch.add_argument(
         "channel", nargs="?", default=None, help="IRC channel name (default: configured)"
     )
@@ -152,7 +164,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="collect and print a summary only; write nothing",
     )
 
-    subparsers.add_parser("status", help="Show the effective configuration")
+    subparsers.add_parser(
+        "status",
+        help="Show the effective configuration",
+        parents=[_logging_options()],
+    )
 
     return parser
 
@@ -257,6 +273,7 @@ def _stream_token(token: str) -> None:
 
 
 def cmd_fetch(args: argparse.Namespace, cfg: Config) -> int:
+    quiet = getattr(args, "quiet", False)
     now = utcnow()
     since = _resolve_since(args, now, cfg)
 
@@ -285,7 +302,7 @@ def cmd_fetch(args: argparse.Namespace, cfg: Config) -> int:
         include_audio = False
 
     if include_summary:
-        echo = not (args.quiet or args.stdout)
+        echo = not (quiet or args.stdout)
         try:
             raw = summarize(
                 log.chat_text(), cfg, on_token=_stream_token if echo else None
@@ -337,7 +354,7 @@ def cmd_fetch(args: argparse.Namespace, cfg: Config) -> int:
         include_audio=report.audio_file is not None,
         write_json=bool(cfg.write_json),
     )
-    if not args.quiet:
+    if not quiet:
         print(f"Summary: {paths['html']}")
         print(f"Latest:  {paths['latest']}")
         if "json" in paths:
@@ -366,7 +383,9 @@ def main(argv: list[str] | None = None) -> int:
     """Main entry point for the CLI."""
     parser = build_parser()
     args = parser.parse_args(argv)
-    _configure_logging(args.verbose, args.quiet)
+    _configure_logging(
+        getattr(args, "verbose", 0), getattr(args, "quiet", False)
+    )
 
     if not args.command:
         parser.print_help()
