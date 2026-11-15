@@ -23,8 +23,8 @@ SYSTEMD_DIR ?= $(HOME)/.config/systemd/user
 
 VENV   ?= .venv
 PYTHON ?= python3
-PY     := $(VENV)/bin/python
-PIP    := $(VENV)/bin/pip
+PY      = $(VENV)/bin/python
+PIP     = $(VENV)/bin/pip
 
 # How to invoke the CLI from the service. Defaults to the venv console script,
 # then to `asc` on PATH, then to `python -m asc` for PYTHON.
