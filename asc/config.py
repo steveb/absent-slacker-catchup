@@ -14,9 +14,9 @@ LOG = logging.getLogger(__name__)
 
 DEFAULT_CHANNEL = "#openstack-ironic"
 DEFAULT_IRCLOG_BASE_URL = "https://meetings.opendev.org/irclogs"
-DEFAULT_SUMMARY_MODEL = (
-    "hf.co/mradermacher/Josiefied-DeepSeek-R1-0528-Qwen3-8B-abliterated-v1-i1-GGUF:Q4_K_M"
-)
+DEFAULT_SUMMARY_BASE_URL = "https://api.enmaas.devshift.net/v1"
+DEFAULT_SUMMARY_MODEL = "rits/deepseek-ai/DeepSeek-V4.1-Flash-1017"
+DEFAULT_API_KEY_ENV = "ENMAAS_KEY"
 DEFAULT_TTS_MODEL = "en_GB-jenny_dioco-medium.onnx"
 
 OUTPUT_TYPES = ("CHAT", "SUMMARY", "SPEECH_SUMMARY")
@@ -38,7 +38,7 @@ DEFAULT_BOT_PATTERNS = [
 class Config:
     # general
     channel: str = DEFAULT_CHANNEL
-    window_hours: float = 14.0
+    window_hours: float = 24.0
     output_dir: Path = Path("output")
     output_type: str = "CHAT"
     write_json: bool = False
@@ -53,9 +53,10 @@ class Config:
     max_days: int = 31
 
     # summariser
+    base_url: str = DEFAULT_SUMMARY_BASE_URL
     summary_model: str = DEFAULT_SUMMARY_MODEL
-    num_predict: int = 1024
-    ollama_host: str | None = None
+    api_key_env: str = DEFAULT_API_KEY_ENV
+    max_tokens: int = 1024
 
     # text to speech
     tts_model: str = DEFAULT_TTS_MODEL
@@ -109,9 +110,10 @@ def _apply_section(cfg: Config, name: str, values: dict[str, Any]) -> None:
             "max_days": (int, "max_days"),
         },
         "summary": {
+            "base_url": (str, "base_url"),
             "model": (str, "summary_model"),
-            "num_predict": (int, "num_predict"),
-            "ollama_host": (str, "ollama_host"),
+            "api_key_env": (str, "api_key_env"),
+            "max_tokens": (int, "max_tokens"),
         },
         "tts": {
             "model": (str, "tts_model"),

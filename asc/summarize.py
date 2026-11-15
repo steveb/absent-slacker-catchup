@@ -1,8 +1,9 @@
-"""Summarise a chat log with a local model served by ollama."""
+"""Summarise a chat log with an OpenAI-compatible chat completion endpoint."""
 
 from __future__ import annotations
 
 import logging
+import os
 import re
 from collections.abc import Callable
 
@@ -63,45 +64,68 @@ def split_thinking(summary: str) -> tuple[str, str]:
     return "", summary.strip()
 
 
+def _api_key(cfg: Config) -> str:
+    key = os.environ.get(cfg.api_key_env, "").strip()
+    if not key:
+        raise SummaryError(
+            f"{cfg.api_key_env} is not set; export it, or point "
+            "summary.api_key_env at the variable that holds the key"
+        )
+    return key
+
+
 def summarize(
     chat_text: str,
     cfg: Config,
     *,
     on_token: Callable[[str], None] | None = None,
 ) -> str:
-    """Ask ollama for a summary of ``chat_text``.
+    """Ask the configured endpoint for a summary of ``chat_text``.
 
-    ``on_token`` is called for each streamed chunk so callers can echo the
-    summary while it is generated.
+    ``on_token`` is called for each streamed chunk of the answer, so callers
+    can echo the summary while it is generated. Any separate reasoning the
+    model streams is wrapped in the ``think`` tags and returned with the answer
+    so :func:`split_thinking` can present it.
     """
-    import ollama
+    import openai
 
+    api_key = _api_key(cfg)
     prompt = SUMMARY_PROMPT.format(chat=chat_text)
-    options = {"num_predict": cfg.num_predict}
+    answer: list[str] = []
+    thinking: list[str] = []
+
     try:
-        if cfg.ollama_host:
-            client = ollama.Client(host=cfg.ollama_host)
-            stream = client.chat(
-                cfg.summary_model,
-                messages=[{"role": "user", "content": prompt}],
-                stream=True,
-                options=options,
-            )
-        else:
-            stream = ollama.chat(
-                cfg.summary_model,
-                messages=[{"role": "user", "content": prompt}],
-                stream=True,
-                options=options,
-            )
-        summary = ""
+        client = openai.OpenAI(
+            base_url=cfg.base_url,
+            api_key=api_key,
+            timeout=cfg.request_timeout,
+        )
+        stream = client.chat.completions.create(
+            model=cfg.summary_model,
+            messages=[{"role": "user", "content": prompt}],
+            stream=True,
+            max_tokens=cfg.max_tokens,
+        )
         for chunk in stream:
-            content = chunk["message"]["content"]
-            summary += content
-            if on_token is not None:
-                on_token(content)
-    except Exception as exc:  # ollama raises its own error hierarchy
-        raise SummaryError(f"ollama summarisation failed: {exc}") from exc
-    if not summary.strip():
-        raise SummaryError("ollama returned an empty summary")
-    return summary
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+            reasoning = getattr(delta, "reasoning_content", None)
+            if reasoning:
+                thinking.append(reasoning)
+            content = getattr(delta, "content", None)
+            if content:
+                answer.append(content)
+                if on_token is not None:
+                    on_token(content)
+    except Exception as exc:
+        raise SummaryError(
+            f"summary request to {cfg.base_url} failed: {exc}"
+        ) from exc
+
+    text = "".join(answer).strip()
+    if not text:
+        raise SummaryError("the summariser returned an empty response")
+    if thinking:
+        return f"{THINK_OPEN}{''.join(thinking).strip()}{THINK_CLOSE}{text}"
+    return text

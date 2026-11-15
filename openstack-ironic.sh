@@ -1,7 +1,14 @@
 #!/bin/bash
 # Convenience wrapper: summarize the channel from this checkout.
-hours=${hours:-14}
+hours=${hours:-24}
 channel=${channel:-#openstack-ironic}
+
+# Load the API key (and anything else) that the systemd timer uses, if present.
+if [ -f "$HOME/.config/asc/env" ]; then
+    set -a
+    . "$HOME/.config/asc/env"
+    set +a
+fi
 
 cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" || exit 1
 

@@ -43,7 +43,7 @@ def test_defaults_to_the_configured_window():
     cfg = Config()
     cli._apply_overrides(cfg, args)
     assert cli._resolve_since(args, NOW, cfg) == datetime(
-        2026, 11, 14, 22, 0, tzinfo=timezone.utc
+        2026, 11, 14, 12, 0, tzinfo=timezone.utc
     )
 
 
@@ -152,6 +152,9 @@ def test_status_reports_configuration(capsys):
     out = capsys.readouterr().out
     assert "asc 0.1.0" in out
     assert "#openstack-ironic" in out
+    assert "summary api" in out
+    assert "rits/deepseek-ai/DeepSeek-V4.1-Flash-1017" in out
+    assert "ENMAAS_KEY" in out
     assert "voice model" in out
 
 
@@ -224,7 +227,7 @@ def test_summary_failure_keeps_the_chat_page(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(cli, "collect", lambda client, config, since, now: (fake_log(), []))
 
     def boom(*args, **kwargs):
-        raise SummaryError("ollama is down")
+        raise SummaryError("endpoint is down")
 
     monkeypatch.setattr(cli, "summarize", boom)
 
@@ -242,7 +245,7 @@ def test_summary_failure_keeps_the_chat_page(monkeypatch, tmp_path, capsys):
 
     assert result == 1
     html = (tmp_path / "latest.html").read_text(encoding="utf-8")
-    assert "ollama is down" in html
+    assert "endpoint is down" in html
     assert "<h2>Summary</h2>" not in html
     assert "Summary:" in capsys.readouterr().out
 

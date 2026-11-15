@@ -2,8 +2,9 @@
 
 A command line tool that summarizes the previous hours of an OpenStack IRC
 channel. It reads the archived logs from
-<https://meetings.opendev.org/irclogs/>, optionally asks a local model (via
-[ollama](https://ollama.com/)) for a summary, and optionally reads that summary
+<https://meetings.opendev.org/irclogs/>, optionally asks an OpenAI-compatible
+chat completions endpoint ([EnMaaS](https://api.enmaas.devshift.net/v1) running
+DeepSeek V4.1 Flash by default) for a summary, and optionally reads that summary
 aloud with [Piper](https://github.com/rhasspy/piper).
 
 ```
@@ -13,23 +14,24 @@ make run          # writes output/<channel>-<timestamp>/ and opens the page
 
 ## What it does
 
-- Collects every message in the window (default 14 hours) from the archived
+- Collects every message in the window (default 24 hours) from the archived
   IRC logs, scanning back one day at a time and stopping at the first day with
   no log file.
 - Drops messages from nicknames listed in `irc.ignore_nicks` and nicknames that
   match a regex in `irc.bot_patterns` (`opendevreview`, `*-bot`, `zuul`, …).
 - Writes a self-contained HTML page and the plain text transcript of the
-  window. With `--output-type SUMMARY` it adds an ollama summary; with
+  window. With `--output-type SUMMARY` it adds an LLM summary; with
   `SPEECH_SUMMARY` it also synthesizes a WAV file.
-- Reports partial failures (a failed log fetch, ollama being down, a missing
+- Reports partial failures (a failed log fetch, the endpoint being down, a missing
   voice model) in the page and via the exit status instead of a traceback:
   the dashboard is still written with whatever was available.
 
 ## Requirements
 
 - Python 3.11 or newer.
-- `ollama` running locally with a model pulled, for `SUMMARY` and
-  `SPEECH_SUMMARY`.
+- An API key for the summary endpoint in `ENMAAS_KEY`, for `SUMMARY` and
+  `SPEECH_SUMMARY`. Any OpenAI-compatible endpoint and model can be used
+  instead; see [Configuration](#configuration).
 - A Piper voice model for `SPEECH_SUMMARY`. The model is not committed; put it
   in `~/.local/share/asc/models/` (or set `tts.model`/`tts.model_dir`):
 
@@ -46,19 +48,19 @@ make run          # writes output/<channel>-<timestamp>/ and opens the page
 ```bash
 make setup                      # create .venv and install the package + dev extras
 .venv/bin/asc fetch --help
-.venv/bin/asc fetch --hours 14 --output-type SPEECH_SUMMARY --open "#openstack-ironic"
+.venv/bin/asc fetch --hours 24 --output-type SPEECH_SUMMARY --open "#openstack-ironic"
 .venv/bin/asc status            # show the effective configuration
 ```
 
 | Option | Meaning |
 | --- | --- |
 | `channel` | IRC channel to summarize (default `#openstack-ironic`). |
-| `--hours N` | Window size in hours (default 14). |
+| `--hours N` | Window size in hours (default 24). |
 | `--since ISO8601` | Explicit window start, e.g. `2026-11-12T06:00:00Z`. |
 | `--output-dir DIR` | Where to create the run directory (default `./output`). |
 | `--output-type T` | `CHAT`, `SUMMARY` or `SPEECH_SUMMARY` (default `CHAT`). |
 | `--ignore-nicks A [B …]` | Nicknames to drop entirely. |
-| `--summary-model M` | ollama model used for the summary. |
+| `--summary-model M` | Model used for the summary. |
 | `--tts-model M` | Piper voice model (absolute, or a name searched in the model dir). |
 | `--tts-model-dir DIR` | Where to look for a relative `--tts-model`. |
 | `--json` / `--no-json` | Also write a machine-readable `summary.json`. |
@@ -97,7 +99,7 @@ line flags override the file, which overrides the built-in defaults.
 ```toml
 [general]
 channel = "#openstack-ironic"
-window_hours = 14
+window_hours = 24
 output_dir = "output"
 output_type = "SPEECH_SUMMARY"
 write_json = true
@@ -107,16 +109,22 @@ ignore_nicks = ["opendevreview"]
 bot_patterns = ["^zuul$", "-bot$"]
 
 [summary]
-model = "hf.co/mradermacher/…:Q4_K_M"
-num_predict = 1024
+base_url = "https://api.enmaas.devshift.net/v1"
+model = "rits/deepseek-ai/DeepSeek-V4.1-Flash-1017"
+api_key_env = "ENMAAS_KEY"
+max_tokens = 1024
 
 [tts]
 model = "en_GB-jenny_dioco-medium.onnx"
 model_dir = "~/.local/share/asc/models"
 ```
 
-`asc status` prints the effective settings, including whether the voice model
-was found.
+The endpoint only needs to be OpenAI-compatible: point `base_url` at
+`http://localhost:11434/v1` to use a local ollama model, or at any other
+compatible service.
+
+`asc status` prints the effective settings, including the summary endpoint,
+whether the API key is set and whether the voice model was found.
 
 ## Scheduling
 
@@ -131,8 +139,16 @@ make uninstall-timer
 
 The Makefile renders `contrib/asc.service` and `contrib/asc.timer` into
 `~/.config/systemd/user/` with the chosen channel, window, output directory and
-command, so no hand editing is needed. Re-run `make install-timer` after
-changing a setting:
+command, so no hand editing is needed. The service reads its API key from
+`~/.config/asc/env`:
+
+```bash
+install -d -m 700 ~/.config/asc
+printf 'ENMAAS_KEY=%s\n' "$ENMAAS_KEY" > ~/.config/asc/env
+chmod 600 ~/.config/asc/env
+```
+
+Re-run `make install-timer` after changing a setting:
 
 ```bash
 make install-timer CHANNEL='#openstack-nova' HOURS=24 SCHEDULE='*-*-* 07:30' OPEN_BROWSER=1
@@ -148,11 +164,12 @@ loginctl enable-linger "$USER"
 ### cron
 
 ```
-30 6 * * * cd $HOME/dev/localstack/absent-slacker-catchup && .venv/bin/asc fetch --hours 24 --output-type SPEECH_SUMMARY --no-open >> output/cron.log 2>&1
+30 6 * * * cd $HOME/dev/localstack/absent-slacker-catchup && set -a && . $HOME/.config/asc/env && set +a && .venv/bin/asc fetch --hours 24 --output-type SPEECH_SUMMARY --no-open >> output/cron.log 2>&1
 ```
 
-`openstack-ironic.sh` is a small wrapper for interactive use: it changes to the
-checkout, prefers `.venv/bin/asc`, and falls back to `python3 -m asc`.
+`openstack-ironic.sh` is a small wrapper for interactive use: it loads
+`~/.config/asc/env` when present, changes to the checkout, prefers
+`.venv/bin/asc`, and falls back to `python3 -m asc`.
 
 ## How it works
 
@@ -161,8 +178,8 @@ checkout, prefers `.venv/bin/asc`, and falls back to `python3 -m asc`.
   the first missing day.
 - `asc/http.py` – retries with exponential backoff, honours `Retry-After`,
   throttles consecutive requests and sends an identifying User-Agent.
-- `asc/summarize.py` – streams the ollama response and splits out any reasoning
-  block the model emits.
+- `asc/summarize.py` – streams the chat completions response (OpenAI SDK) and
+  keeps any reasoning the model streams separate from the answer.
 - `asc/tts.py` – turns the markdown summary into speech-friendly text and
   drives Piper.
 - `asc/render.py` + `asc/templates/` – Jinja2 rendering; the IRC text is
@@ -194,7 +211,7 @@ the suite never touches the network.
   if a new automation account appears.
 - The log scan stops at the first 404, so a gap in the archive ends the run
   early. `irc.max_days` caps the scan so a quiet channel cannot loop.
-- A summary needs ollama and the configured model; `CHAT` output needs neither
-  ollama nor a voice model.
+- A summary needs `ENMAAS_KEY` and a reachable endpoint; `CHAT` output needs
+  neither the API key nor a voice model.
 - Speech synthesis needs the `.onnx` voice model and its `.onnx.json` metadata
   file in the same directory.

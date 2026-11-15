@@ -39,7 +39,7 @@ WORKDIR ?= $(CURDIR)
 
 # `asc fetch` arguments.
 CHANNEL     ?= \#openstack-ironic
-HOURS       ?= 14
+HOURS       ?= 24
 LONG_HOURS  ?= 120
 OUTPUT_TYPE ?= SPEECH_SUMMARY
 OUTPUT_DIR  ?= $(HOME)/.local/share/asc

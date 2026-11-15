@@ -9,6 +9,8 @@ Type=oneshot
 WorkingDirectory="@WORKDIR@"
 ExecStart=@ASC_CMD@ fetch --hours @HOURS@ --output-type @OUTPUT_TYPE@ --output-directory "@OUTPUT_DIR@" @BROWSER_ARGS@ "@CHANNEL@"
 Environment=PYTHONUNBUFFERED=1
+# Put ENMAAS_KEY=... in this file (mode 600); the leading '-' makes it optional.
+EnvironmentFile=-%h/.config/asc/env
 # The summary is a side effect; failures are visible in the journal:
 #   journalctl --user -u @UNIT_NAME@.service
 Nice=10

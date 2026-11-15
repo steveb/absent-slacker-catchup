@@ -81,7 +81,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--hours",
         type=float,
         default=None,
-        help="number of hours to look back (default: 14)",
+        help="number of hours to look back (default: 24)",
     )
     fetch.add_argument(
         "--since",
@@ -113,7 +113,7 @@ def build_parser() -> argparse.ArgumentParser:
     fetch.add_argument(
         "--summary-model",
         default=None,
-        help="ollama model used to generate the summary",
+        help="model used to generate the summary",
     )
     fetch.add_argument(
         "--tts-model",
@@ -374,7 +374,10 @@ def cmd_status(args: argparse.Namespace, cfg: Config, config_path: Path | None) 
     print(f"  window        {cfg.window_hours:g}h")
     print(f"  output type   {cfg.output_type}")
     print(f"  output dir    {cfg.output_dir}")
+    print(f"  summary api   {cfg.base_url}")
     print(f"  summary model {cfg.summary_model}")
+    key_state = "set" if os.environ.get(cfg.api_key_env) else "missing"
+    print(f"  summary key   {cfg.api_key_env} ({key_state})")
     print(f"  voice model   {voice} ({'found' if voice.exists() else 'missing'})")
     return 0
 

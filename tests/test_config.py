@@ -8,7 +8,10 @@ from pathlib import Path
 import pytest
 
 from asc.config import (
+    DEFAULT_API_KEY_ENV,
     DEFAULT_CHANNEL,
+    DEFAULT_SUMMARY_BASE_URL,
+    DEFAULT_SUMMARY_MODEL,
     DEFAULT_TTS_MODEL,
     Config,
     default_config_path,
@@ -19,10 +22,14 @@ from asc.config import (
 def test_defaults():
     cfg = Config()
     assert cfg.channel == DEFAULT_CHANNEL
-    assert cfg.window_hours == 14
+    assert cfg.window_hours == 24
     assert cfg.output_type == "CHAT"
     assert cfg.write_json is False
     assert "opendevreview" in cfg.ignore_nicks
+    assert cfg.base_url == DEFAULT_SUMMARY_BASE_URL
+    assert cfg.summary_model == DEFAULT_SUMMARY_MODEL
+    assert cfg.api_key_env == DEFAULT_API_KEY_ENV
+    assert cfg.max_tokens == 1024
 
 
 def test_load_config_without_path_returns_defaults():
@@ -53,8 +60,10 @@ bot_patterns = ["^bot$"]
 max_days = 2
 
 [summary]
+base_url = "http://localhost:11434/v1"
 model = "tiny"
-num_predict = 10
+api_key_env = "OTHER_KEY"
+max_tokens = 10
 
 [tts]
 model = "voice.onnx"
@@ -71,8 +80,10 @@ model_dir = "/models"
     assert cfg.ignore_nicks == ["someone"]
     assert cfg.bot_patterns == ["^bot$"]
     assert cfg.max_days == 2
+    assert cfg.base_url == "http://localhost:11434/v1"
     assert cfg.summary_model == "tiny"
-    assert cfg.num_predict == 10
+    assert cfg.api_key_env == "OTHER_KEY"
+    assert cfg.max_tokens == 10
     assert cfg.tts_model == "voice.onnx"
     assert cfg.tts_model_dir == Path("/models")
 

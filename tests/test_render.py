@@ -75,12 +75,12 @@ def test_audio_is_linked(cfg):
 
 def test_errors_are_reported_in_the_page(cfg):
     report = make_report()
-    report.errors.append("ollama: unavailable")
+    report.errors.append("summary endpoint: unavailable")
 
     html = render_page(report, cfg)
 
     assert "This report is incomplete" in html
-    assert "ollama: unavailable" in html
+    assert "summary endpoint: unavailable" in html
 
 
 def test_empty_window_renders_a_notice(cfg):

@@ -4,7 +4,7 @@
 [general]
 channel = "#openstack-ironic"
 # How far back to look, in hours.
-window_hours = 14
+window_hours = 24
 # Run directories are created here, named <channel>-<timestamp>.
 output_dir = "output"
 # CHAT, SUMMARY or SPEECH_SUMMARY.
@@ -32,11 +32,13 @@ bot_patterns = [
 max_days = 31
 
 [summary]
-model = "hf.co/mradermacher/Josiefied-DeepSeek-R1-0528-Qwen3-8B-abliterated-v1-i1-GGUF:Q4_K_M"
+# Any OpenAI-compatible chat completions endpoint works here.
+base_url = "https://api.enmaas.devshift.net/v1"
+model = "rits/deepseek-ai/DeepSeek-V4.1-Flash-1017"
+# Name of the environment variable that holds the API key.
+api_key_env = "ENMAAS_KEY"
 # Upper bound on the generated summary length, in tokens.
-num_predict = 1024
-# Leave unset to use the ollama default host (or $OLLAMA_HOST).
-# ollama_host = "http://localhost:11434"
+max_tokens = 1024
 
 [tts]
 # The Piper voice model. A relative name is looked up in model_dir, then in the
