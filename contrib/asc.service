@@ -1,0 +1,14 @@
+[Unit]
+Description=Absent Slacker Catchup (ASC) IRC channel summary
+Documentation=file://@WORKDIR@/README.md
+
+[Service]
+Type=oneshot
+# The default voice model is resolved relative to the working directory, so the
+# service runs from the checkout (or wherever the model lives).
+WorkingDirectory="@WORKDIR@"
+ExecStart=@ASC_CMD@ fetch --hours @HOURS@ --output-type @OUTPUT_TYPE@ --output-directory "@OUTPUT_DIR@" @BROWSER_ARGS@ "@CHANNEL@"
+Environment=PYTHONUNBUFFERED=1
+# The summary is a side effect; failures are visible in the journal:
+#   journalctl --user -u @UNIT_NAME@.service
+Nice=10
