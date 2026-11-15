@@ -188,9 +188,14 @@ def generate_summary(context):
     context.summary = ""
 
     prompt = f"""
-    You are an assistant that summarizes chat logs without additional commentary.
-    Use exclusively they/them pronouns when referring to people in this chat log.
+    You are an assistant that summarizes chat logs
+    without additional commentary.
+
+    Use exclusively they/them pronouns when
+    referring to people in this chat log.
+
     Always reply in English.
+
     Summarize the following chat log:
 
     <chat>
@@ -198,6 +203,7 @@ def generate_summary(context):
     </chat>
     """
 
+    # TODO(steveb): set options num_predict to prevent unbound generation
     response = ollama.chat(
         model, messages=[{"role": "user", "content": prompt}], stream=True
     )
