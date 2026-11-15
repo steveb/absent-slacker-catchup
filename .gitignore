@@ -1,49 +1,17 @@
-# Compiled files
-*.py[co]
-*.a
-*.o
-*.so
+.venv/
+output/
+__pycache__/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+config.toml
 
-# Sphinx
-_build
-doc/source/contributor/api/
-_static
-doc/source/admin/drivers/redfish/OpenStackIronicProfile.*.rst
+# TTS voice models are downloaded, not committed.
+*.onnx
+*.onnx.json
+*.wav
 
-# release notes build
-releasenotes/build
-
-# sample config files
-etc/ironic/ironic.conf.sample
-etc/ironic/policy.yaml.sample
-
-# Packages/installer info
-*.egg
-*.egg-info
-dist
-build
-eggs
-.eggs
-parts
-var
-sdist
-develop-eggs
-.installed.cfg
-
-# Other
-*.DS_Store
-.idea
-.testrepository
-.stestr
-.tox
-.venv
-.*.swp
-.coverage
-cover
-AUTHORS
-ChangeLog
-*.sqlite
-*~
-
-# Vagrant
-.vagrant
+# Scratch space: reference projects and captured run output.
+_extra/
+openstack-ironic-omg/
