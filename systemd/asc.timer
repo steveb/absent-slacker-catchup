@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodically summarize OpenStack IRC channels with ASC
+
+[Timer]
+OnCalendar=@SCHEDULE@
+Persistent=@PERSISTENT@
+RandomizedDelaySec=@RANDOM_DELAY@
+Unit=@UNIT_NAME@.service
+
+[Install]
+WantedBy=timers.target

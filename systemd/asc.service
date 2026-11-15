@@ -1,0 +1,10 @@
+[Unit]
+Description=Absent Slacker Catchup (ASC) IRC channel summary
+Documentation=file://@WORKDIR@/README.md
+
+[Service]
+Type=oneshot
+# The default --tts-model (en_GB-jenny_dioco-medium.onnx) is a relative path,
+# so the service must run from the directory containing the voice model.
+WorkingDirectory="@WORKDIR@"
+ExecStart=@ASC_CMD@ fetch --hours @HOURS@ --output-type @OUTPUT_TYPE@ --output-directory "@OUTPUT_DIR@" @BROWSER_ARGS@ "@CHANNEL@"
