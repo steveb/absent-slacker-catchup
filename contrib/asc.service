@@ -4,8 +4,8 @@ Documentation=file://@WORKDIR@/README.md
 
 [Service]
 Type=oneshot
-# The default voice model is resolved relative to the working directory, so the
-# service runs from the checkout (or wherever the model lives).
+# Relative output paths are anchored here, and the voice model is looked up in
+# ~/.local/share/asc/models unless tts.model is absolute.
 WorkingDirectory="@WORKDIR@"
 ExecStart=@ASC_CMD@ fetch --hours @HOURS@ --output-type @OUTPUT_TYPE@ --output-directory "@OUTPUT_DIR@" @BROWSER_ARGS@ "@CHANNEL@"
 Environment=PYTHONUNBUFFERED=1

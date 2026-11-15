@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chat summary for {{ channel }} on {{ date }}</title>
+<style>
+{{ css | safe }}
+</style>
+</head>
+<body>
+<h1>Chat summary for {{ channel }} on {{ date }}</h1>
+<p class="meta">
+  Window {{ window_start }} &rarr; {{ window_end }}
+  &middot; {{ message_count }} message{{ '' if message_count == 1 else 's' }}
+  from {{ nickname_count }} {{ 'person' if nickname_count == 1 else 'people' }}
+  {%- if generated %} &middot; generated {{ generated }}{% endif %}
+</p>
+
+{% if errors %}
+<div class="notice">
+  <strong>This report is incomplete:</strong>
+  <ul>
+  {%- for error in errors %}
+    <li>{{ error }}</li>
+  {%- endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if include_audio and audio_href %}
+<h2>Audio summary</h2>
+<audio src="{{ audio_href }}" controls preload="metadata"></audio>
+{% endif %}
+
+{% if include_summary %}
+<h2>Summary</h2>
+<div class="summary">{{ summary_html | safe }}</div>
+{% if thinking %}
+<h2>Thinking</h2>
+<i>{{ thinking }}</i>
+{% endif %}
+{% endif %}
+
+{% if include_chat %}
+<h2>Chat</h2>
+{% if messages %}
+<table class="irclog">
+{%- for message in messages %}
+  <tr id="{{ message.anchor }}">
+    <th>{{ message.time }}</th>
+    <td class="nick">{{ message.nickname }}</td>
+    <td class="text">{{ message.text }}</td>
+  </tr>
+{%- endfor %}
+</table>
+{% else %}
+<p class="meta">No messages in this window.</p>
+{% endif %}
+{% endif %}
+</body>
+</html>

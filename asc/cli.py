@@ -1,513 +1,385 @@
-"""Command line interface for ASC"""
+"""Command line entry point for ASC."""
+
+from __future__ import annotations
 
 import argparse
-import datetime
 import logging
-import re
 import os
+import re
 import sys
-from typing import Optional
-import urllib.parse
-import wave
 import webbrowser
+from datetime import datetime
+from pathlib import Path
 
-from bs4 import BeautifulSoup
-import requests
-import ollama
-import piper
-import pytz
-
-from asc.message import parse_message_from_tr
-
-from . import __version__, __description__
-
-# Initialize logging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    stream=sys.stderr,
+from . import __version__
+from .config import OUTPUT_TYPES, Config, default_config_path, load_config
+from .http import HttpClient
+from .logs import collect
+from .models import Report
+from .render import render_page, write_report
+from .summarize import SummaryError, split_thinking, summarize
+from .timeutil import (
+    format_local,
+    local_stamp,
+    parse_timestamp,
+    utcnow,
+    window_start,
 )
-LOG = logging.getLogger(__name__)
+from .tts import TtsError, clean_for_speech, synthesize
+
+LOG = logging.getLogger("asc")
 
 
-class Context:
-    def __init__(self, args):
-        self.args = args
-        self.channel_encoded = urllib.parse.quote(args.channel.lstrip("#"), safe="")
-        self.output_dir = os.path.join(
-            args.output_directory,
-            self.channel_encoded
-            + "-"
-            + datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S"),
-        )
-        os.makedirs(self.output_dir, exist_ok=True)
-        self.messages = []
-        self.nicknames = set()
-        self.chat = ""
-        self.summary = ""
-        self.chat_file = os.path.join(self.output_dir, "chat.txt")
-        self.html_file = os.path.join(self.output_dir, "summary.html")
-        self.wav_filename = "summary.wav"
-        self.wav_file = os.path.join(self.output_dir, self.wav_filename)
-
-
-def create_parser() -> argparse.ArgumentParser:
-    """Create and configure the argument parser"""
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="asc",
-        description=__description__,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=(
+            "Summarize the previous hours of an OpenStack IRC channel archived "
+            "at https://meetings.opendev.org/irclogs/"
+        ),
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="TOML config file (default: ./config.toml when present)",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="increase logging verbosity",
+    )
+    parser.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="only print errors",
     )
     parser.add_argument("--version", action="version", version=f"asc {__version__}")
-    parser.add_argument(
-        "-v", "--verbose", action="store_true", help="Enable verbose output"
-    )
 
-    # Add subcommands
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
-    # Command: fetch
-    fetch_parser = subparsers.add_parser(
-        "fetch", help="Fetch meeting log from OpenDev IRC logs"
+    fetch = subparsers.add_parser("fetch", help="Summarize a channel from the IRC logs")
+    fetch.add_argument(
+        "channel", nargs="?", default=None, help="IRC channel name (default: configured)"
     )
-    fetch_parser.add_argument(
-        "channel", nargs="?", default="#openstack-ironic", help="IRC channel name"
+    fetch.add_argument(
+        "--hours",
+        type=float,
+        default=None,
+        help="number of hours to look back (default: 14)",
     )
-    fetch_parser.add_argument(
+    fetch.add_argument(
+        "--since",
+        default=None,
+        metavar="ISO8601",
+        help="explicit start of the window, e.g. 2026-11-14T06:00:00Z",
+    )
+    fetch.add_argument(
+        "--output-dir",
+        "--output-directory",
+        dest="output_dir",
+        type=Path,
+        default=None,
+        help="directory to create the run directory in (default: ./output)",
+    )
+    fetch.add_argument(
+        "--output-type",
+        choices=OUTPUT_TYPES,
+        default=None,
+        help="CHAT: chat text, SUMMARY: chat plus summary, "
+        "SPEECH_SUMMARY: summary plus audio (default: CHAT)",
+    )
+    fetch.add_argument(
         "--ignore-nicks",
         nargs="*",
-        default=["opendevreview"],
-        help="List of nicknames to ignore when fetching messages",
+        default=None,
+        help="nicknames to ignore when fetching messages",
     )
-    fetch_parser.add_argument(
-        "--timezone",
-        default="Pacific/Auckland",
-        help="Timezone to use for calculating relative times",
-    )
-    fetch_parser.add_argument(
-        "--hours",
-        type=int,
-        default=14,
-        help="Number of hours to look back for messages (default: 14)",
-    )
-    fetch_parser.add_argument(
-        "--file",
-        help="File to write the chat output to (if not specified, output to stdout)",
-    )
-    fetch_parser.add_argument(
-        "--output-type",
-        choices=["CHAT", "SUMMARY", "SPEECH_SUMMARY"],
-        default="CHAT",
-        help="Type of output to generate. "
-        "CHAT: chat text. "
-        "SUMMARY: summary of the chat as text. "
-        "SPEECH_SUMMARY: summary of the chat as an audio file. "
-        "(default: CHAT)",
-    )
-    fetch_parser.add_argument(
+    fetch.add_argument(
         "--summary-model",
-        default="hf.co/mradermacher/Josiefied-DeepSeek-R1-0528-Qwen3-8B-abliterated-v1-i1-GGUF:Q4_K_M",
-        help="Model to use for generating summaries",
+        default=None,
+        help="ollama model used to generate the summary",
     )
-    fetch_parser.add_argument(
+    fetch.add_argument(
         "--tts-model",
-        default="en_GB-jenny_dioco-medium.onnx",
-        help="Piper TTS model to use for generating speech summaries",
+        default=None,
+        help="Piper voice model used for speech summaries",
     )
-    fetch_parser.add_argument(
-        "--output-directory",
-        default=".",
-        help="Directory to create output directory in",
+    fetch.add_argument(
+        "--tts-model-dir",
+        type=Path,
+        default=None,
+        help="directory searched for a relative --tts-model",
     )
-    fetch_parser.add_argument(
-        "--open-browser",
+    fetch.add_argument(
+        "--json",
+        dest="write_json",
         action="store_true",
-        help="Open generated HTML file in web browser",
+        default=None,
+        help="also write a machine-readable summary.json",
     )
-    # Example command: status
-    status_parser = subparsers.add_parser("status", help="Show status information")
+    fetch.add_argument(
+        "--no-json",
+        dest="write_json",
+        action="store_false",
+        help="do not write the JSON twin",
+    )
+    fetch.add_argument(
+        "--open",
+        "--open-browser",
+        dest="open_browser",
+        action="store_true",
+        default=None,
+        help="open the generated page in a browser",
+    )
+    fetch.add_argument(
+        "--no-open",
+        dest="open_browser",
+        action="store_false",
+        help="never open a browser",
+    )
+    fetch.add_argument(
+        "--stdout",
+        action="store_true",
+        help="print the HTML to stdout instead of writing files",
+    )
+    fetch.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="collect and print a summary only; write nothing",
+    )
+
+    subparsers.add_parser("status", help="Show the effective configuration")
 
     return parser
 
 
-def cmd_fetch(args) -> int:
-    """Handle the fetch command"""
-    LOG.info(f"Fetching {args.hours} hours from channel {args.channel}!")
-    context = Context(args)
-    get_messages(context)
-    if args.output_type == "CHAT":
-        generate_chat(context)
-        generate_html_summary(
-            context, include_chat=True, include_summary=False, include_audio=False
-        )
-    elif args.output_type == "SUMMARY":
-        generate_chat(context)
-        generate_summary(context)
-        generate_html_summary(
-            context, include_chat=True, include_summary=True, include_audio=False
-        )
-    elif args.output_type == "SPEECH_SUMMARY":
-        generate_chat(context)
-        generate_summary(context)
-        generate_speech_summary(context)
-        generate_html_summary(
-            context, include_chat=True, include_summary=True, include_audio=True
-        )
+def _configure_logging(verbosity: int, quiet: bool) -> None:
+    if quiet:
+        level = logging.ERROR
+    elif verbosity >= 2:
+        level = logging.DEBUG
+    elif verbosity == 1:
+        level = logging.INFO
     else:
-        raise ValueError(f"Invalid output type: {args.output_type}")
-    return 0
-
-
-def generate_chat(context):
-    LOG.debug(f"Generating chat for {context.args.channel}")
-    prev_message = None
-    # write to file and print with the verbose argument
-    with open(context.chat_file, "w") as f:
-        for message in context.messages:
-            m = message.format(
-                prev_message, context.nicknames, verbose=context.args.verbose
-            )
-            print(m, end="", flush=True)
-            f.write(m)
-            context.chat += m
-            prev_message = message
-
-    # Generate the chat for the summary
-    context.chat = ""
-    prev_message = None
-    for message in context.messages:
-        m = message.format(prev_message, context.nicknames)
-        context.chat += m
-        prev_message = message
-
-
-def generate_summary(context):
-    """Generate a summary of the chat"""
-    LOG.debug(f"Generating summary for {context.args.channel}")
-    model = context.args.summary_model
-    context.summary = ""
-
-    prompt = f"""
-    You are an assistant that summarizes chat logs
-    without additional commentary.
-
-    Use exclusively they/them pronouns when
-    referring to people in this chat log.
-
-    Always reply in English.
-
-    Summarize the following chat log:
-
-    <chat>
-    {context.chat}
-    </chat>
-    """
-
-    # TODO(steveb): set options num_predict to prevent unbound generation
-    response = ollama.chat(
-        model, messages=[{"role": "user", "content": prompt}], stream=True
+        level = logging.WARNING
+    logging.basicConfig(
+        level=level,
+        format="%(levelname)s %(name)s: %(message)s",
+        stream=sys.stderr,
     )
-    for chunk in response:
-        print(chunk["message"]["content"], end="", flush=True)
-        context.summary += chunk["message"]["content"]
 
 
-def generate_speech_summary(context):
-    """Generate a speech summary of the chat"""
-    LOG.debug(f"Generating speech summary for {context.args.channel}")
-    tts_model = context.args.tts_model
-
-    voice = piper.PiperVoice.load(tts_model)
-
-    # Split the summary on </think> choose the last part
-    summary = re.split(r"</think>", context.summary, flags=re.DOTALL)[-1]
-    # Replace any astrisk bullet points with hyphens
-    summary = re.sub(r"^\* ", "- ", summary, flags=re.DOTALL)
-    # Remove any other asterisks
-    summary = re.sub(r"\*", "", summary, flags=re.DOTALL)
-    # Remove # from the summary
-    summary = re.sub(r"#", "", summary, flags=re.DOTALL)
-    # Replace any other punctuation with a full stop
-    summary = re.sub(r"[^\w\s,] ", ". ", summary, flags=re.DOTALL)
-
-    syn_config = piper.SynthesisConfig(
-        # length_scale=1.1,  # slightly slower
-        # noise_scale=1.0,  # more audio variation
-        noise_w_scale=1.0,  # more speaking variation
-        # normalize_audio=False,  # use raw audio from voice
-    )
-    with wave.open(context.wav_file, "wb") as wav_file:
-        voice.synthesize_wav(summary, wav_file, syn_config=syn_config)
-
-
-def generate_html_summary(
-    context, include_chat=False, include_summary=False, include_audio=False
-):
-    """Generate a HTML document with text and embedded audio player"""
-    # Convert markdown to HTML
-    import markdown
-
-    # Split the summary on </think>
-    summary_parts = re.split(r"</think>", context.summary, flags=re.DOTALL)
-    summary_text = re.sub(
-        r"<think>(.*?)</think>", r"<i>\1</i>", context.summary, flags=re.DOTALL
-    )
-    html_thinking = "<i>"
-    for part in summary_parts[:-1]:
-        html_thinking += f"<p>{part}</p>"
-    html_thinking += "</i>"
-    html_summary = markdown.markdown(summary_parts[-1], extensions=["nl2br", "fenced_code"])
-    with open(context.html_file, "w") as f:
-        f.write(
-            f"""
-<html>
-<head>
-    <title>Chat Summary for {context.channel_encoded}</title>
-        """
-        )
-        f.write(
-            """
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            line-height: 1.6;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f8f9fa;
-            color: #333;
-        }
-        h1 {
-            color: #2c3e50;
-            border-bottom: 2px solid #3498db;
-            padding-bottom: 10px;
-        }
-        h2 {
-            color: #2c3e50;
-            border-bottom: 2px solid #3498db;
-            padding-bottom: 10px;
-        }
-        audio {
-            width: 100%;
-            margin: 20px 0;
-        }
-        pre {
-            background-color: #f4f4f4;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            padding: 15px;
-            overflow-x: auto;
-            font-size: 14px;
-        }
-        i {
-            color: #7f8c8d;
-            font-style: italic;
-        }
-        p {
-            margin-bottom: 16px;
-        }
-        ul, ol {
-            margin-bottom: 16px;
-            padding-left: 30px;
-        }
-        li {
-            margin-bottom: 8px;
-        }
-        code {
-            background-color: #f1f2f6;
-            padding: 2px 4px;
-            border-radius: 3px;
-            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-        }
-        table.irclog {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        table.irclog th, table.irclog td {
-            padding: 8px;
-            text-align: left;
-            vertical-align: top;
-        }
-        table.irclog td.nick {
-            font-weight: bold;
-            text-align: right;
-        }
-    </style>
-</head>
-<body>
-        """
-        )
-        f.write(
-            f"""
-    <h1>Chat Summary for {context.channel_encoded} on {context.messages[0].timestamp.strftime("%Y-%m-%d")}</h1>
-        """
-        )
-
-        if include_audio:
-            f.write(
-                f"""
-    <h2>Audio Summary</h2>
-    <audio src="{context.wav_filename}" controls></audio>
-            """
-            )
-        if include_summary:
-            f.write(
-                f"""
-    <h2>Summary</h2>
-    {html_summary}
-    <h2>Thinking</h2>
-    {html_thinking}
-            """
-            )
-
-        if include_chat:
-            f.write(
-                f"""
-    <h2>Chat</h2>
-    <table class="irclog">
-            """
-            )
-            for message in context.messages:
-                f.write(
-                    f"""
-        <tr id="{message.timestamp}">
-            <td class="time">{message.timestamp.strftime("%H:%M")}</td>
-            <td class="nick">{message.nickname}</th>
-            <td class="text">{message.text}</td>
-        </tr>
-                """
-                )
-            f.write(
-                """
-    </table>
-            """
-            )
-        f.write(
-            """
-</body>
-</html>
-        """
-        )
-    LOG.info(f"Generated HTML summary in {context.html_file}")
-    if context.args.open_browser:
-        webbrowser.open(context.html_file)
+def _apply_overrides(cfg: Config, args: argparse.Namespace) -> None:
+    if args.channel is not None:
+        cfg.channel = args.channel
+    if args.hours is not None:
+        cfg.window_hours = float(args.hours)
+    if args.output_dir is not None:
+        cfg.output_dir = Path(args.output_dir).expanduser()
+    if args.output_type is not None:
+        cfg.output_type = args.output_type
+    if args.ignore_nicks is not None:
+        cfg.ignore_nicks = list(args.ignore_nicks)
+    if args.summary_model is not None:
+        cfg.summary_model = args.summary_model
+    if args.tts_model is not None:
+        cfg.tts_model = args.tts_model
+    if args.tts_model_dir is not None:
+        cfg.tts_model_dir = Path(args.tts_model_dir).expanduser()
+    if args.write_json is not None:
+        cfg.write_json = args.write_json
+    if args.open_browser is not None:
+        cfg.open_browser = args.open_browser
+    if cfg.window_hours <= 0:
+        raise SystemExit("--hours must be greater than zero")
+    if not cfg.channel.strip():
+        raise SystemExit("channel must not be empty")
 
 
-def get_messages(context):
-
-    LOG.debug(
-        f"Getting messages for {context.args.channel} from {context.args.hours} hours ago"
-    )
-    args = context.args
-    nicknames = context.nicknames
-    now = pytz.timezone(args.timezone).localize(datetime.datetime.now())
-    now_utc = now.astimezone(pytz.utc).replace(tzinfo=None)
-
-    cutoff_time = now_utc - datetime.timedelta(hours=args.hours)
-    messages = context.messages
-
-    day = cutoff_time.replace(hour=0, minute=0, second=0, microsecond=0)
-    while True:
+def _resolve_since(
+    args: argparse.Namespace, now: datetime, cfg: Config
+) -> datetime:
+    if args.since:
         try:
-            day_log = fetch_meeting_log(args.channel, day)
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 404:
-                break
-            else:
-                raise
-
-        for message in parse_irc_log_html(day_log):
-            if not message:
-                continue
-            if message.timestamp < cutoff_time:
-                continue
-            if message.nickname in args.ignore_nicks:
-                continue
-            nicknames.add(message.nickname)
-            messages.append(message)
-        day = day + datetime.timedelta(days=1)
-    return messages
+            since = parse_timestamp(args.since)
+        except ValueError as exc:
+            raise SystemExit(f"invalid --since value: {exc}") from exc
+        if since >= now:
+            raise SystemExit("--since must be in the past")
+        return since
+    return window_start(now, cfg.window_hours)
 
 
-def parse_irc_log_html(html_content: str):
-    """Parse HTML content and yield each <tr> element from the irclog table
-
-    Args:
-        html_content: HTML string containing the IRC log
-
-    Yields:
-        <tr> elements from the table with class "irclog"
-    """
-
-    soup = BeautifulSoup(html_content, "html.parser")
-
-    # Find the table with class "irclog"
-    irclog_table = soup.find("table", class_="irclog")
-
-    if irclog_table:
-        # Yield each <tr> element in the table
-        for tr in irclog_table.find_all("tr"):
-            yield parse_message_from_tr(tr)
+def _should_open_browser(cfg: Config) -> bool:
+    if cfg.open_browser is not None:
+        return cfg.open_browser
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
 
-def cmd_status(args) -> int:
-    """Handle the status command"""
-    print("ASC Status: Running")
-    if args.verbose:
-        print(f"Version: {__version__}")
-        print("All systems operational.")
+def _open_in_browser(path: Path) -> None:
+    uri = path.resolve().as_uri()
+    try:
+        launched = webbrowser.open(uri)
+    except Exception as exc:  # pragma: no cover - environment dependent
+        LOG.warning("could not open %s in a browser: %s", uri, exc)
+        return
+    if not launched:
+        LOG.warning("no browser available to open %s", uri)
+
+
+def _slug(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", value.lstrip("#").lower()).strip("-")
+    return slug or "channel"
+
+
+def _print_summary(report: Report, cfg: Config) -> None:
+    log = report.log
+    print(f"{log.channel}")
+    print(
+        f"  window   {format_local(log.window_start)} -> "
+        f"{format_local(log.window_end)} ({cfg.window_hours:g}h)"
+    )
+    print(f"  messages {len(log.messages)} from {len(log.nicknames)} people")
+    print(f"  summary  {'yes' if report.summary else 'no'}")
+    print(f"  audio    {report.audio_file or 'no'}")
+    if report.errors:
+        print(f"  errors   {len(report.errors)}")
+        for error in report.errors:
+            print(f"           - {error}")
+
+
+def _stream_token(token: str) -> None:
+    print(token, end="", flush=True)
+
+
+def cmd_fetch(args: argparse.Namespace, cfg: Config) -> int:
+    now = utcnow()
+    since = _resolve_since(args, now, cfg)
+
+    errors: list[str] = []
+    client = HttpClient(
+        cfg.user_agent,
+        timeout=cfg.request_timeout,
+        min_interval=0.2,
+    )
+    with client:
+        log, collect_errors = collect(client, cfg, since, now)
+    errors.extend(collect_errors)
+
+    report = Report(log=log, errors=errors)
+    include_chat = True
+    include_summary = cfg.output_type in ("SUMMARY", "SPEECH_SUMMARY")
+    include_audio = cfg.output_type == "SPEECH_SUMMARY"
+
+    if args.dry_run:
+        _print_summary(report, cfg)
+        return 1 if errors else 0
+
+    if include_summary and not log.messages:
+        LOG.warning("no messages in the window; skipping the summary")
+        include_summary = False
+        include_audio = False
+
+    if include_summary:
+        echo = not (args.quiet or args.stdout)
+        try:
+            raw = summarize(
+                log.chat_text(), cfg, on_token=_stream_token if echo else None
+            )
+        except SummaryError as exc:
+            LOG.error("%s", exc)
+            errors.append(str(exc))
+            include_summary = False
+            include_audio = False
+        else:
+            report.thinking, report.summary = split_thinking(raw)
+            if echo:
+                print(flush=True)
+
+    run_dir = Path(cfg.output_dir) / f"{_slug(cfg.channel)}-{local_stamp(now)}"
+
+    if include_audio and report.summary:
+        try:
+            synthesize(
+                clean_for_speech(report.summary),
+                run_dir / "summary.wav",
+                cfg.resolve_tts_model(),
+            )
+            report.audio_file = "summary.wav"
+        except TtsError as exc:
+            LOG.error("%s", exc)
+            errors.append(str(exc))
+
+    if args.stdout:
+        sys.stdout.write(
+            render_page(
+                report,
+                cfg,
+                include_summary=include_summary,
+                include_chat=include_chat,
+                include_audio=report.audio_file is not None,
+                audio_href=report.audio_file,
+            )
+        )
+        sys.stdout.flush()
+        return 1 if errors else 0
+
+    paths = write_report(
+        report,
+        cfg,
+        run_dir,
+        include_summary=include_summary,
+        include_chat=include_chat,
+        include_audio=report.audio_file is not None,
+        write_json=bool(cfg.write_json),
+    )
+    if not args.quiet:
+        print(f"Summary: {paths['html']}")
+        print(f"Latest:  {paths['latest']}")
+        if "json" in paths:
+            print(f"JSON:    {paths['json']}")
+
+    if _should_open_browser(cfg):
+        _open_in_browser(paths["html"])
+
+    return 1 if errors else 0
+
+
+def cmd_status(args: argparse.Namespace, cfg: Config, config_path: Path | None) -> int:
+    voice = cfg.resolve_tts_model()
+    print(f"asc {__version__}")
+    print(f"  config        {config_path or '(defaults)'}")
+    print(f"  channel       {cfg.channel}")
+    print(f"  window        {cfg.window_hours:g}h")
+    print(f"  output type   {cfg.output_type}")
+    print(f"  output dir    {cfg.output_dir}")
+    print(f"  summary model {cfg.summary_model}")
+    print(f"  voice model   {voice} ({'found' if voice.exists() else 'missing'})")
     return 0
 
 
-def fetch_meeting_log(channel: str, date: datetime.datetime) -> str:
-    """Fetch meeting log from OpenDev IRC logs
-
-    Args:
-        channel: IRC channel name
-        date: Date of the meeting
-
-    Returns:
-        Response text from the log URL
-    """
-    year = date.year
-    month = f"{date.month:02d}"
-    day = f"{date.day:02d}"
-    # URL escape the channel name
-    channel = urllib.parse.quote(channel)
-
-    url = f"https://meetings.opendev.org/irclogs/{channel}/{channel}.{year}-{month}-{day}.log.html"
-    LOG.debug(f"Fetching log from {url}")
-
-    response = requests.get(url)
-    response.raise_for_status()
-
-    return response.text
-
-
-def main(argv: Optional[list] = None) -> int:
-    """Main entry point for the CLI"""
-    if argv is None:
-        argv = sys.argv[1:]
-
-    parser = create_parser()
+def main(argv: list[str] | None = None) -> int:
+    """Main entry point for the CLI."""
+    parser = build_parser()
     args = parser.parse_args(argv)
+    _configure_logging(args.verbose, args.quiet)
 
-    if args.verbose:
-        LOG.debug(f"args: {args}")
-
-    # If no command is specified, show help
     if not args.command:
         parser.print_help()
         return 1
 
-    # Dispatch to command handlers
-    if args.command == "fetch":
-        return cmd_fetch(args)
-    elif args.command == "status":
-        return cmd_status(args)
-    else:
-        print(f"Unknown command: {args.command}", file=sys.stderr)
-        return 1
+    config_path = args.config or default_config_path()
+    cfg = load_config(config_path)
+
+    if args.command == "status":
+        return cmd_status(args, cfg, args.config if args.config else config_path)
+
+    _apply_overrides(cfg, args)
+    return cmd_fetch(args, cfg)
 
 
 if __name__ == "__main__":

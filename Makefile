@@ -50,7 +50,7 @@ SCHEDULE     ?= hourly
 PERSISTENT   ?= true
 RANDOM_DELAY ?= 5m
 
-BROWSER_ARGS := $(if $(filter-out 0,$(OPEN_BROWSER)),--open-browser,)
+BROWSER_ARGS := $(if $(filter-out 0,$(OPEN_BROWSER)),--open,)
 
 # `make FOO=~/bar` does not get shell tilde expansion, so expand a leading ~
 # ourselves. Use `override` because these may be set on the command line.
