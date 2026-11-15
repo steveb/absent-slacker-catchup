@@ -73,6 +73,28 @@ def test_audio_is_linked(cfg):
     assert '<audio src="summary.wav"' in html
 
 
+def test_ignored_messages_are_shown_dimmed(cfg):
+    ignored = Message(
+        timestamp=datetime(2026, 11, 15, 10, 0, tzinfo=timezone.utc),
+        nickname="opendevreview",
+        text="proposed a change",
+        ignored=True,
+    )
+    log = ChatLog(
+        channel="#openstack-ironic",
+        window_start=START,
+        window_end=END,
+        messages=[ignored],
+        nicknames={"opendevreview"},
+    )
+
+    html = render_page(Report(log=log), cfg)
+
+    assert 'class="ignored"' in html
+    assert "proposed a change" in html
+    assert "nothing to summarize" in html
+
+
 def test_errors_are_reported_in_the_page(cfg):
     report = make_report()
     report.errors.append("summary endpoint: unavailable")

@@ -74,7 +74,7 @@ def test_parse_log_html_without_table_is_empty():
     assert list(parse_log_html("<html><body>nothing</body></html>")) == []
 
 
-def test_collect_filters_bots_and_the_window(cfg, load_fixture):
+def test_collect_flags_bots_instead_of_dropping_them(cfg, load_fixture):
     cfg.max_days = 1
     start = datetime(2026, 11, 12, 0, 0, tzinfo=timezone.utc)
     end = datetime(2026, 11, 12, 23, 59, tzinfo=timezone.utc)
@@ -84,9 +84,28 @@ def test_collect_filters_bots_and_the_window(cfg, load_fixture):
     log, errors = collect(client, cfg, start, end)
 
     assert errors == []
-    assert log.nicknames == {"JayF", "TheJulia", "stephenfin", "cardoe", "cid"}
-    assert "opendevreview" not in log.nicknames
+    assert log.human_nicknames == {"JayF", "TheJulia", "stephenfin", "cardoe", "cid"}
+    assert log.ignored_messages
+    assert {message.nickname for message in log.ignored_messages} == {
+        "opendevreview"
+    }
+    assert len(log.messages) == len(log.human_messages) + len(
+        log.ignored_messages
+    )
     assert len(client.requested) == 1
+
+
+def test_summary_text_skips_ignored_messages(cfg, load_fixture):
+    cfg.max_days = 1
+    start = datetime(2026, 11, 12, 0, 0, tzinfo=timezone.utc)
+    end = datetime(2026, 11, 12, 23, 59, tzinfo=timezone.utc)
+    url = log_url(cfg.irclog_base_url, cfg.channel, start)
+    client = FakeClient({url: load_fixture("irclog-2026-11-12.html")})
+
+    log, _ = collect(client, cfg, start, end)
+
+    assert "JayF said:" in log.chat_text()
+    assert "opendevreview" not in log.chat_text()
 
 
 def test_collect_drops_messages_outside_the_window(cfg):

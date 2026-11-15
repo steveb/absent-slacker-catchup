@@ -78,8 +78,11 @@ def collect(
 ) -> tuple[ChatLog, list[str]]:
     """Collect the messages posted in ``cfg.channel`` since ``since``.
 
-    Returns the collected log and a list of human readable errors. A missing
-    log page (HTTP 404) ends the scan: it means the channel was quiet that day.
+    Returns the collected log and a list of human readable errors. Every
+    in-window message is kept so the transcript stays complete; messages from
+    ignored nicknames and bot patterns are flagged and left out of the
+    summarisation prompt. A missing log page (HTTP 404) ends the scan: it means
+    the channel was quiet that day.
     """
     since = ensure_utc(since)
     now = ensure_utc(now)
@@ -111,9 +114,9 @@ def collect(
         for message in parse_log_html(response.text):
             if message.timestamp < since or message.timestamp > now:
                 continue
-            if is_ignored(message.nickname, cfg, patterns):
-                LOG.debug("ignoring message from %s", message.nickname)
-                continue
+            message.ignored = is_ignored(message.nickname, cfg, patterns)
+            if message.ignored:
+                LOG.debug("flagging message from %s as ignored", message.nickname)
             log.nicknames.add(message.nickname)
             log.messages.append(message)
         day += timedelta(days=1)

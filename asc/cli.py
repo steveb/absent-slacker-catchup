@@ -15,7 +15,7 @@ from . import __version__
 from .config import OUTPUT_TYPES, Config, default_config_path, load_config
 from .http import HttpClient
 from .logs import collect
-from .models import Report
+from .models import ChatLog, Report
 from .render import render_page, write_report
 from .summarize import SummaryError, split_thinking, summarize
 from .timeutil import (
@@ -259,13 +259,31 @@ def _print_summary(report: Report, cfg: Config) -> None:
         f"  window   {format_local(log.window_start)} -> "
         f"{format_local(log.window_end)} ({cfg.window_hours:g}h)"
     )
-    print(f"  messages {len(log.messages)} from {len(log.nicknames)} people")
+    print(
+        f"  messages {len(log.messages)} ({len(log.ignored_messages)} ignored)"
+        f" from {len(log.human_nicknames)} people"
+    )
     print(f"  summary  {'yes' if report.summary else 'no'}")
     print(f"  audio    {report.audio_file or 'no'}")
     if report.errors:
         print(f"  errors   {len(report.errors)}")
         for error in report.errors:
             print(f"           - {error}")
+
+
+def _print_progress(log: ChatLog) -> None:
+    """Print a one line progress report before the expensive steps."""
+    if not log.messages:
+        print(f"{log.channel}: no messages in the window")
+        return
+    ignored = len(log.ignored_messages)
+    detail = f", {ignored} ignored" if ignored else ""
+    print(
+        f"{log.channel}: {len(log.messages)} message"
+        f"{'' if len(log.messages) == 1 else 's'} from "
+        f"{len(log.human_nicknames)} "
+        f"{'person' if len(log.human_nicknames) == 1 else 'people'}{detail}"
+    )
 
 
 def _stream_token(token: str) -> None:
@@ -296,8 +314,13 @@ def cmd_fetch(args: argparse.Namespace, cfg: Config) -> int:
         _print_summary(report, cfg)
         return 1 if errors else 0
 
-    if include_summary and not log.messages:
-        LOG.warning("no messages in the window; skipping the summary")
+    if not quiet:
+        _print_progress(log)
+
+    if include_summary and not log.human_messages:
+        LOG.warning(
+            "no messages from people in the window; skipping the summary"
+        )
         include_summary = False
         include_audio = False
 

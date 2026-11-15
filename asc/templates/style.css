@@ -109,3 +109,8 @@ table.irclog td.nick {
 table.irclog tr:target {
   background-color: #fef9e7;
 }
+
+table.irclog tr.ignored td,
+table.irclog tr.ignored th {
+  color: #95a5a6;
+}

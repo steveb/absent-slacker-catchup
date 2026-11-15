@@ -13,7 +13,10 @@
 <p class="meta">
   Window {{ window_start }} &rarr; {{ window_end }}
   &middot; {{ message_count }} message{{ '' if message_count == 1 else 's' }}
+  {%- if ignored_message_count %} ({{ ignored_message_count }} ignored){% endif %}
+  {%- if nickname_count %}
   from {{ nickname_count }} {{ 'person' if nickname_count == 1 else 'people' }}
+  {%- endif %}
   {%- if generated %} &middot; generated {{ generated }}{% endif %}
 </p>
 
@@ -25,6 +28,13 @@
     <li>{{ error }}</li>
   {%- endfor %}
   </ul>
+</div>
+{% endif %}
+
+{% if message_count and not human_message_count %}
+<div class="notice">
+  Every message in this window came from an ignored nickname or bot pattern,
+  so there is nothing to summarize. They are still listed below.
 </div>
 {% endif %}
 
@@ -47,7 +57,7 @@
 {% if messages %}
 <table class="irclog">
 {%- for message in messages %}
-  <tr id="{{ message.anchor }}">
+  <tr id="{{ message.anchor }}"{% if message.ignored %} class="ignored"{% endif %}>
     <th>{{ message.time }}</th>
     <td class="nick">{{ message.nickname }}</td>
     <td class="text">{{ message.text }}</td>

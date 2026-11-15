@@ -250,6 +250,48 @@ def test_summary_failure_keeps_the_chat_page(monkeypatch, tmp_path, capsys):
     assert "Summary:" in capsys.readouterr().out
 
 
+def test_bot_only_window_is_still_rendered(monkeypatch, tmp_path, capsys):
+    bot_log = ChatLog(
+        channel="#openstack-ironic",
+        window_start=datetime(2026, 11, 15, 10, 0, tzinfo=timezone.utc),
+        window_end=datetime(2026, 11, 15, 11, 0, tzinfo=timezone.utc),
+        messages=[
+            Message(
+                timestamp=datetime(2026, 11, 15, 10, 30, tzinfo=timezone.utc),
+                nickname="opendevreview",
+                text="proposed openstack/ironic: something",
+                ignored=True,
+            )
+        ],
+        nicknames={"opendevreview"},
+    )
+    monkeypatch.setattr(cli, "collect", lambda client, config, since, now: (bot_log, []))
+
+    def fail(*args, **kwargs):
+        raise AssertionError("summarize should not run without human messages")
+
+    monkeypatch.setattr(cli, "summarize", fail)
+
+    result = cli.main(
+        [
+            "fetch",
+            "--hours",
+            "1",
+            "--output-dir",
+            str(tmp_path),
+            "--output-type",
+            "SPEECH_SUMMARY",
+        ]
+    )
+
+    assert result == 0
+    out = capsys.readouterr().out
+    assert "1 message from 0 people, 1 ignored" in out
+    html = (tmp_path / "latest.html").read_text(encoding="utf-8")
+    assert "proposed openstack/ironic: something" in html
+    assert 'class="ignored"' in html
+
+
 def test_empty_window_skips_the_summary(monkeypatch, tmp_path):
     empty = ChatLog(
         channel="#openstack-ironic",

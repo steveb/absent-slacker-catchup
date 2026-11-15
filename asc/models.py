@@ -16,6 +16,9 @@ class Message:
     timestamp: datetime
     nickname: str
     text: str
+    # Messages from ignored nicknames or bot patterns stay in the transcript but
+    # are left out of the summarisation prompt.
+    ignored: bool = False
 
     def format(
         self,
@@ -53,6 +56,7 @@ class Message:
             "nickname": self.nickname,
             "text": self.text,
             "anchor": self.timestamp.strftime("%Y-%m-%dT%H:%M:%S"),
+            "ignored": self.ignored,
         }
 
 
@@ -66,12 +70,25 @@ class ChatLog:
     messages: list[Message] = field(default_factory=list)
     nicknames: set[str] = field(default_factory=set)
 
+    @property
+    def human_messages(self) -> list[Message]:
+        """Messages that are eligible for the summary."""
+        return [message for message in self.messages if not message.ignored]
+
+    @property
+    def ignored_messages(self) -> list[Message]:
+        return [message for message in self.messages if message.ignored]
+
+    @property
+    def human_nicknames(self) -> set[str]:
+        return {message.nickname for message in self.human_messages}
+
     def chat_text(self, *, verbose: bool = False) -> str:
         """Render the conversation the way the summariser expects it."""
         parts: list[str] = []
         prev_message: Message | None = None
         nicknames = frozenset(self.nicknames)
-        for message in self.messages:
+        for message in self.human_messages:
             parts.append(
                 message.format(prev_message, nicknames, verbose=verbose)
             )
@@ -88,6 +105,8 @@ class ChatLog:
             ).total_seconds()
             / 3600,
             "message_count": len(self.messages),
+            "human_message_count": len(self.human_messages),
+            "ignored_message_count": len(self.ignored_messages),
             "nicknames": sorted(self.nicknames),
             "generated": format_local(self.window_end),
         }

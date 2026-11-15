@@ -17,8 +17,10 @@ make run          # writes output/<channel>-<timestamp>/ and opens the page
 - Collects every message in the window (default 24 hours) from the archived
   IRC logs, scanning back one day at a time and stopping at the first day with
   no log file.
-- Drops messages from nicknames listed in `irc.ignore_nicks` and nicknames that
-  match a regex in `irc.bot_patterns` (`opendevreview`, `*-bot`, `zuul`, …).
+- Keeps every message in the transcript, but flags messages from nicknames in
+  `irc.ignore_nicks` and nicknames matching a regex in `irc.bot_patterns`
+  (`opendevreview`, `*-bot`, `zuul`, …). Flagged messages are shown dimmed in
+  the page and left out of the summarisation prompt.
 - Writes a self-contained HTML page and the plain text transcript of the
   window. With `--output-type SUMMARY` it adds an LLM summary; with
   `SPEECH_SUMMARY` it also synthesizes a WAV file.
@@ -169,7 +171,9 @@ loginctl enable-linger "$USER"
 
 `openstack-ironic.sh` is a small wrapper for interactive use: it loads
 `~/.config/asc/env` when present, changes to the checkout, prefers
-`.venv/bin/asc`, and falls back to `python3 -m asc`.
+`.venv/bin/asc`, falls back to `python3 -m asc`, and forwards any extra
+arguments (`./openstack-ironic.sh --no-open`, `hours=48`, `channel='#openstack-nova'`).
+The browser is opened only when the CLI detects a graphical session.
 
 ## How it works
 
@@ -213,5 +217,8 @@ the suite never touches the network.
   early. `irc.max_days` caps the scan so a quiet channel cannot loop.
 - A summary needs `ENMAAS_KEY` and a reachable endpoint; `CHAT` output needs
   neither the API key nor a voice model.
+- A window that only contains bot activity still renders the transcript (with a
+  notice that there is nothing to summarize) instead of failing or writing an
+  empty page; run with `-v` to see the log URLs being fetched.
 - Speech synthesis needs the `.onnx` voice model and its `.onnx.json` metadata
   file in the same directory.
