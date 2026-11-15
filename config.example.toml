@@ -37,8 +37,10 @@ base_url = "https://api.enmaas.devshift.net/v1"
 model = "rits/deepseek-ai/DeepSeek-V4.1-Flash-1017"
 # Name of the environment variable that holds the API key.
 api_key_env = "ENMAAS_KEY"
-# Upper bound on the generated summary length, in tokens.
-max_tokens = 1024
+# Maximum completion tokens, i.e. the reasoning scratch pad plus the written
+# brief. This is not the context window (that is ~1,056,784 tokens); raising it
+# only allows longer output and costs nothing unless the model writes it.
+max_tokens = 32768
 
 [tts]
 # The Piper voice model. A relative name is looked up in model_dir, then in the

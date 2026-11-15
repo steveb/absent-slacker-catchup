@@ -328,7 +328,13 @@ def cmd_fetch(args: argparse.Namespace, cfg: Config) -> int:
         echo = not (quiet or args.stdout)
         try:
             raw = summarize(
-                log.chat_text(), cfg, on_token=_stream_token if echo else None
+                log.chat_text(),
+                cfg,
+                channel=log.channel,
+                window_start=log.window_start,
+                window_end=log.window_end,
+                message_count=len(log.human_messages),
+                on_token=_stream_token if echo else None,
             )
         except SummaryError as exc:
             LOG.error("%s", exc)

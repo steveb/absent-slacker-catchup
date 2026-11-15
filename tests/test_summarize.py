@@ -2,24 +2,35 @@
 
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 
 import pytest
 
+from datetime import datetime, timezone
+
 from asc import summarize as summarize_module
 from asc.summarize import (
+    SYSTEM_PROMPT,
     THINK_CLOSE,
     THINK_OPEN,
     SummaryError,
+    build_messages,
     split_thinking,
     strip_thinking,
     summarize,
 )
 
 
-def chunk(content: str | None = None, reasoning: str | None = None):
+def chunk(
+    content: str | None = None,
+    reasoning: str | None = None,
+    finish: str | None = None,
+):
     delta = SimpleNamespace(content=content, reasoning_content=reasoning)
-    return SimpleNamespace(choices=[SimpleNamespace(delta=delta)])
+    return SimpleNamespace(
+        choices=[SimpleNamespace(delta=delta, finish_reason=finish)]
+    )
 
 
 class FakeEndpoint:
@@ -94,8 +105,9 @@ def test_summarize_streams_the_answer(monkeypatch, cfg):
     assert request["model"] == cfg.summary_model
     assert request["stream"] is True
     assert request["max_tokens"] == cfg.max_tokens
-    assert request["messages"][0]["role"] == "user"
-    assert "<chat>\nchat\n</chat>" in request["messages"][0]["content"]
+    assert request["messages"][0] == {"role": "system", "content": SYSTEM_PROMPT}
+    assert request["messages"][1]["role"] == "user"
+    assert "<chat>\nchat\n</chat>" in request["messages"][1]["content"]
 
 
 def test_summarize_surfaces_separate_reasoning(monkeypatch, cfg):
@@ -141,6 +153,25 @@ def test_summarize_empty_response_raises(monkeypatch, cfg):
     assert "empty response" in str(excinfo.value)
 
 
+def test_reasoning_exhausting_the_budget_is_reported(monkeypatch, cfg):
+    install_fake(monkeypatch, [chunk(reasoning="thinking and thinking", finish="length")])
+
+    with pytest.raises(SummaryError) as excinfo:
+        summarize("chat", cfg)
+
+    message = str(excinfo.value)
+    assert str(cfg.max_tokens) in message
+    assert "summary.max_tokens" in message
+
+
+def test_truncated_answer_warns(monkeypatch, cfg, caplog):
+    install_fake(monkeypatch, [chunk("partial answer", finish="length")])
+    caplog.set_level(logging.WARNING)
+
+    assert summarize("chat", cfg) == "partial answer"
+    assert "truncated" in caplog.text
+
+
 def test_summarize_wraps_request_errors(monkeypatch, cfg):
     def boom(**kwargs):
         raise RuntimeError("connection refused")
@@ -154,5 +185,36 @@ def test_summarize_wraps_request_errors(monkeypatch, cfg):
     assert "connection refused" in str(excinfo.value)
 
 
-def test_module_exposes_the_prompt():
-    assert "{chat}" in summarize_module.SUMMARY_PROMPT
+def test_system_prompt_requests_a_substantial_brief():
+    assert "## Overview" in SYSTEM_PROMPT
+    assert "## Key points" in SYSTEM_PROMPT
+    assert "## Decisions" in SYSTEM_PROMPT
+    assert "## Action items" in SYSTEM_PROMPT
+    assert "250-500 words" in SYSTEM_PROMPT
+    assert "they/them" in SYSTEM_PROMPT
+
+
+def test_module_exposes_the_user_template():
+    assert "{chat}" in summarize_module.USER_TEMPLATE
+
+
+def test_messages_include_the_window_context(cfg):
+    messages = build_messages(
+        "alice said:\nhello",
+        cfg,
+        channel="#openstack-nova",
+        window_start=datetime(2026, 11, 14, 0, 0, tzinfo=timezone.utc),
+        window_end=datetime(2026, 11, 15, 0, 0, tzinfo=timezone.utc),
+        message_count=42,
+    )
+    user = messages[1]["content"]
+    assert "Channel: #openstack-nova" in user
+    assert "Messages: 42" in user
+    assert "Window: " in user
+    assert "alice said:" in user
+
+
+def test_messages_fall_back_to_the_configured_channel(cfg):
+    messages = build_messages("chat", cfg)
+    assert f"Channel: {cfg.channel}" in messages[1]["content"]
+    assert "the requested period" in messages[1]["content"]

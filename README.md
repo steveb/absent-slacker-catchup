@@ -22,8 +22,9 @@ make run          # writes output/<channel>-<timestamp>/ and opens the page
   (`opendevreview`, `*-bot`, `zuul`, …). Flagged messages are shown dimmed in
   the page and left out of the summarisation prompt.
 - Writes a self-contained HTML page and the plain text transcript of the
-  window. With `--output-type SUMMARY` it adds an LLM summary; with
-  `SPEECH_SUMMARY` it also synthesizes a WAV file.
+  window. With `--output-type SUMMARY` it adds a structured catch-up brief
+  (overview, key points, decisions, action items, open questions, links) rather
+  than a terse recap; with `SPEECH_SUMMARY` it also synthesizes a WAV file.
 - Hyperlinks bare `http(s)://` URLs in the transcript, the summary and the
   model's reasoning. The text is HTML-escaped first, so a link cannot inject
   markup, and links inside code blocks are left alone.
@@ -117,7 +118,7 @@ bot_patterns = ["^zuul$", "-bot$"]
 base_url = "https://api.enmaas.devshift.net/v1"
 model = "rits/deepseek-ai/DeepSeek-V4.1-Flash-1017"
 api_key_env = "ENMAAS_KEY"
-max_tokens = 1024
+max_tokens = 32768
 
 [tts]
 model = "en_GB-jenny_dioco-medium.onnx"
@@ -220,6 +221,10 @@ the suite never touches the network.
   early. `irc.max_days` caps the scan so a quiet channel cannot loop.
 - A summary needs `ENMAAS_KEY` and a reachable endpoint; `CHAT` output needs
   neither the API key nor a voice model.
+- `summary.max_tokens` is the completion budget — the model's reasoning plus
+  the written brief. It is not the context window (roughly 1,056,784 tokens for
+  the default model), and a reasoning model can spend the whole budget thinking:
+  if a run fails with "spent the whole … budget on reasoning", raise it.
 - A window that only contains bot activity still renders the transcript (with a
   notice that there is nothing to summarize) instead of failing or writing an
   empty page; run with `-v` to see the log URLs being fetched.

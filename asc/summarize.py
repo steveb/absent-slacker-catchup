@@ -6,24 +6,72 @@ import logging
 import os
 import re
 from collections.abc import Callable
+from datetime import datetime
 
 from .config import Config
+from .timeutil import format_local
 
 LOG = logging.getLogger(__name__)
 
-SUMMARY_PROMPT = """You are an assistant that summarizes chat logs
-without additional commentary.
+# The instructions below target a capable hosted model (DeepSeek V4.1 Flash by
+# default). They are deliberately explicit about structure and length: the
+# previous prompt was tuned for a small local model and produced one or two
+# terse bullets, which is not a useful catch-up for someone who was away.
+SYSTEM_PROMPT = """You are an experienced OpenStack engineer writing a catch-up \
+brief for a colleague who missed an IRC channel window. They know the project \
+well: do not explain basics, do not restate the transcript message by message, \
+and do not describe what you are doing.
 
-Use exclusively they/them pronouns when
-referring to people in this chat log.
+Write in English as Markdown. Always use they/them pronouns for the people in \
+the log. Use the first name or nickname they use in the channel.
 
-Always reply in English.
+Structure the brief like this, with these exact headings, and omit a heading \
+when it has nothing under it:
 
-Summarize the following chat log:
+## Overview
+Two to four sentences on what the window was about and what changed.
+
+## Key points
+The substantive discussion, grouped by topic rather than by time. Give enough \
+detail that the reader understands what was proposed, argued or investigated, \
+and why. Cover every topic that had real discussion, not just the loudest one.
+
+## Decisions
+Anything that was agreed, concluded or settled.
+
+## Action items
+Who is doing what, plus reviews, bugs or follow-ups that were requested. Name \
+the person where the log makes the owner clear.
+
+## Open questions
+Unresolved questions or disagreements that still need an answer.
+
+## Links
+Notable URLs from the log, each with a few words on why it matters. Keep the \
+full URL so it stays clickable.
+
+Guidelines:
+- Let the material set the length: a quiet window gets a couple of sentences, \
+a normal day is usually 250-500 words, and a busy multi-day window can be \
+longer. Never pad and never repeat a point to fill space.
+- Prefer concrete specifics (names, services, bugs, commands, numbers, review \
+links) over generic statements.
+- Quote a short phrase only when the exact wording matters.
+- Never invent people, numbers, links, decisions or outcomes. If something in \
+the log is ambiguous or unresolved, say that plainly.
+- Do not add a title, a preamble, a closing remark, or a statement that this \
+is a summary.
+"""
+
+USER_TEMPLATE = """Channel: {channel}
+Window: {window}
+Messages: {message_count}
 
 <chat>
 {chat}
 </chat>
+
+Write the catch-up brief for this window.
 """
 
 # Reasoning models may wrap their scratch pad in these tags. They are assembled
@@ -64,6 +112,34 @@ def split_thinking(summary: str) -> tuple[str, str]:
     return "", summary.strip()
 
 
+def _window_label(start: datetime | None, end: datetime | None) -> str:
+    if start is None or end is None:
+        return "the requested period"
+    return f"{format_local(start)} to {format_local(end)}"
+
+
+def build_messages(
+    chat_text: str,
+    cfg: Config,
+    *,
+    channel: str | None = None,
+    window_start: datetime | None = None,
+    window_end: datetime | None = None,
+    message_count: int | None = None,
+) -> list[dict[str, str]]:
+    """Build the system/user message pair sent to the endpoint."""
+    prompt = USER_TEMPLATE.format(
+        channel=channel or cfg.channel,
+        window=_window_label(window_start, window_end),
+        message_count=message_count if message_count is not None else "unknown",
+        chat=chat_text,
+    )
+    return [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": prompt},
+    ]
+
+
 def _api_key(cfg: Config) -> str:
     key = os.environ.get(cfg.api_key_env, "").strip()
     if not key:
@@ -78,6 +154,10 @@ def summarize(
     chat_text: str,
     cfg: Config,
     *,
+    channel: str | None = None,
+    window_start: datetime | None = None,
+    window_end: datetime | None = None,
+    message_count: int | None = None,
     on_token: Callable[[str], None] | None = None,
 ) -> str:
     """Ask the configured endpoint for a summary of ``chat_text``.
@@ -90,9 +170,17 @@ def summarize(
     import openai
 
     api_key = _api_key(cfg)
-    prompt = SUMMARY_PROMPT.format(chat=chat_text)
+    messages = build_messages(
+        chat_text,
+        cfg,
+        channel=channel,
+        window_start=window_start,
+        window_end=window_end,
+        message_count=message_count,
+    )
     answer: list[str] = []
     thinking: list[str] = []
+    finish_reason: str | None = None
 
     try:
         client = openai.OpenAI(
@@ -102,14 +190,16 @@ def summarize(
         )
         stream = client.chat.completions.create(
             model=cfg.summary_model,
-            messages=[{"role": "user", "content": prompt}],
+            messages=messages,
             stream=True,
             max_tokens=cfg.max_tokens,
         )
         for chunk in stream:
             if not chunk.choices:
                 continue
-            delta = chunk.choices[0].delta
+            choice = chunk.choices[0]
+            finish_reason = getattr(choice, "finish_reason", None) or finish_reason
+            delta = choice.delta
             reasoning = getattr(delta, "reasoning_content", None)
             if reasoning:
                 thinking.append(reasoning)
@@ -125,7 +215,16 @@ def summarize(
 
     text = "".join(answer).strip()
     if not text:
+        if finish_reason == "length":
+            raise SummaryError(
+                f"the model spent the whole {cfg.max_tokens} token budget on "
+                "reasoning without writing an answer; raise summary.max_tokens"
+            )
         raise SummaryError("the summariser returned an empty response")
+    if finish_reason == "length":
+        LOG.warning(
+            "summary was truncated at summary.max_tokens=%d tokens", cfg.max_tokens
+        )
     if thinking:
         return f"{THINK_OPEN}{''.join(thinking).strip()}{THINK_CLOSE}{text}"
     return text

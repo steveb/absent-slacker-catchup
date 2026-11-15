@@ -56,7 +56,7 @@ class Config:
     base_url: str = DEFAULT_SUMMARY_BASE_URL
     summary_model: str = DEFAULT_SUMMARY_MODEL
     api_key_env: str = DEFAULT_API_KEY_ENV
-    max_tokens: int = 1024
+    max_tokens: int = 32768
 
     # text to speech
     tts_model: str = DEFAULT_TTS_MODEL

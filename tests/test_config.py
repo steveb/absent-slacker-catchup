@@ -29,7 +29,7 @@ def test_defaults():
     assert cfg.base_url == DEFAULT_SUMMARY_BASE_URL
     assert cfg.summary_model == DEFAULT_SUMMARY_MODEL
     assert cfg.api_key_env == DEFAULT_API_KEY_ENV
-    assert cfg.max_tokens == 1024
+    assert cfg.max_tokens == 32768
 
 
 def test_load_config_without_path_returns_defaults():
