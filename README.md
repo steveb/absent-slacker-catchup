@@ -94,7 +94,9 @@ output/latest.html    # copy of the most recent page
 ```
 
 Each page has up to four sections: the audio player, the summary, the model's
-reasoning (when the model exposes it), and the chat transcript.
+reasoning (when the model exposes it), and the chat transcript. Review/change
+numbers and bug numbers in the summary are linked to Gerrit and Launchpad
+automatically, and all links open in a new tab.
 
 ## Configuration
 
@@ -120,6 +122,11 @@ model = "rits/deepseek-ai/DeepSeek-V4.1-Flash-1017"
 api_key_env = "ENMAAS_KEY"
 max_tokens = 32768
 
+[links]
+gerrit_base_url = "https://review.opendev.org"
+launchpad_base_url = "https://bugs.launchpad.net"
+launchpad_project = ""
+
 [tts]
 model = "en_GB-jenny_dioco-medium.onnx"
 model_dir = "~/.local/share/asc/models"
@@ -137,7 +144,7 @@ whether the API key is set and whether the voice model was found.
 ### systemd user timer (recommended)
 
 ```bash
-make install-timer      # hourly, Persistent=true, 5 minute random delay
+make install-timer      # daily at 07:00, Persistent=true
 systemctl --user list-timers asc.timer
 journalctl --user -u asc.service
 make uninstall-timer

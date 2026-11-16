@@ -6,7 +6,9 @@ Documentation=file://@WORKDIR@/README.md
 Type=oneshot
 # Relative output paths are anchored here, and the voice model is looked up in
 # ~/.local/share/asc/models unless tts.model is absolute.
-WorkingDirectory="@WORKDIR@"
+# systemd does not unquote path settings such as WorkingDirectory, so keep this
+# value bare (a quoted value is rejected as "path is not absolute").
+WorkingDirectory=@WORKDIR@
 ExecStart=@ASC_CMD@ fetch --hours @HOURS@ --output-type @OUTPUT_TYPE@ --output-directory "@OUTPUT_DIR@" @BROWSER_ARGS@ "@CHANNEL@"
 Environment=PYTHONUNBUFFERED=1
 # Put ENMAAS_KEY=... in this file (mode 600); the leading '-' makes it optional.

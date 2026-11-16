@@ -46,9 +46,9 @@ OUTPUT_DIR  ?= $(HOME)/.local/share/asc
 OPEN_BROWSER ?= 0
 
 # Timer settings.
-SCHEDULE     ?= hourly
+SCHEDULE     ?= *-*-* 07:00:00
 PERSISTENT   ?= true
-RANDOM_DELAY ?= 5m
+RANDOM_DELAY ?= 0
 
 BROWSER_ARGS := $(if $(filter-out 0,$(OPEN_BROWSER)),--open,)
 

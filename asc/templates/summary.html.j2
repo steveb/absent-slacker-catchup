@@ -1,72 +1,112 @@
+{#- Chat summary page: one self-contained HTML file. -#}
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<base target="_blank">
 <title>Chat summary for {{ channel }} on {{ date }}</title>
-<style>
-{{ css | safe }}
-</style>
+<style>{{ css | safe }}</style>
 </head>
 <body>
-<h1>Chat summary for {{ channel }} on {{ date }}</h1>
-<p class="meta">
-  Window {{ window_start }} &rarr; {{ window_end }}
-  &middot; {{ message_count }} message{{ '' if message_count == 1 else 's' }}
-  {%- if ignored_message_count %} ({{ ignored_message_count }} ignored){% endif %}
-  {%- if nickname_count %}
-  from {{ nickname_count }} {{ 'person' if nickname_count == 1 else 'people' }}
-  {%- endif %}
-  {%- if generated %} &middot; generated {{ generated }}{% endif %}
-</p>
+<header class="page-head">
+  <div class="headline">
+    <h1>Chat summary for {{ channel }}</h1>
+    <p class="sub">
+      Window {{ window_start }} &rarr; {{ window_end }} ({{ date }})
+      &middot; generated {{ generated }}
+    </p>
+  </div>
+  <ul class="counts">
+    <li><strong>{{ message_count }}</strong><span>message{{ '' if message_count == 1 else 's' }}</span></li>
+    {% if nickname_count %}
+    <li><strong>{{ nickname_count }}</strong><span>{{ 'person' if nickname_count == 1 else 'people' }}</span></li>
+    {% endif %}
+    {% if ignored_message_count %}
+    <li class="muted-count"><strong>{{ ignored_message_count }}</strong><span>ignored</span></li>
+    {% endif %}
+  </ul>
+</header>
 
 {% if errors %}
-<div class="notice">
+<div class="banner error">
   <strong>This report is incomplete:</strong>
   <ul>
-  {%- for error in errors %}
+    {% for error in errors %}
     <li>{{ error }}</li>
-  {%- endfor %}
+    {% endfor %}
   </ul>
 </div>
 {% endif %}
 
 {% if message_count and not human_message_count %}
-<div class="notice">
-  Every message in this window came from an ignored nickname or bot pattern,
-  so there is nothing to summarize. They are still listed below.
+<div class="banner quiet">
+  <strong>Nothing to summarize.</strong>
+  <p>
+    Every message in this window came from an ignored nickname or bot pattern,
+    so there is nothing to summarize. They are still listed below.
+  </p>
 </div>
 {% endif %}
 
 {% if include_audio and audio_href %}
-<h2>Audio summary</h2>
-<audio src="{{ audio_href }}" controls preload="metadata"></audio>
+<section class="block">
+  <h2>Audio summary</h2>
+  <div class="card">
+    <audio src="{{ audio_href }}" controls preload="metadata"></audio>
+  </div>
+</section>
 {% endif %}
 
 {% if include_summary %}
-<h2>Summary</h2>
-<div class="summary">{{ summary_html | safe }}</div>
-{% if thinking %}
-<h2>Thinking</h2>
-<i class="thinking">{{ thinking_html }}</i>
-{% endif %}
+<section class="block">
+  <h2>Summary</h2>
+  <article class="card prose">{{ summary_html | safe }}</article>
+  {% if thinking %}
+  <details class="activity">
+    <summary>Model reasoning</summary>
+    <div class="comment">
+      <div class="comment-body quiet thinking">{{ thinking_html }}</div>
+    </div>
+  </details>
+  {% endif %}
+</section>
 {% endif %}
 
 {% if include_chat %}
-<h2>Chat</h2>
-{% if messages %}
-<table class="irclog">
-{%- for message in messages %}
-  <tr id="{{ message.anchor }}"{% if message.ignored %} class="ignored"{% endif %}>
-    <th>{{ message.time }}</th>
-    <td class="nick">{{ message.nickname }}</td>
-    <td class="text">{{ message.text_html }}</td>
-  </tr>
-{%- endfor %}
-</table>
-{% else %}
-<p class="meta">No messages in this window.</p>
+<section class="block">
+  <h2>Chat <span class="count">{{ message_count }}</span></h2>
+  {% if messages %}
+  <div class="table-wrap">
+    <table class="irclog">
+      <thead>
+        <tr><th>Time</th><th>Nick</th><th>Message</th></tr>
+      </thead>
+      <tbody>
+        {% for message in messages %}
+        <tr id="{{ message.anchor }}"{% if message.ignored %} class="ignored"{% endif %}>
+          <td class="time" title="{{ message.timestamp }}">{{ message.time }}</td>
+          <td class="nick">{{ message.nickname }}</td>
+          <td class="text">{{ message.text_html }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="banner quiet">
+    <strong>No messages in this window.</strong>
+  </div>
+  {% endif %}
+</section>
 {% endif %}
-{% endif %}
+
+<footer class="page-foot">
+  <p class="muted">
+    Generated {{ generated }} from the {{ channel }} IRC log. Messages from
+    ignored nicknames and bots are shown dimmed and left out of the summary.
+  </p>
+</footer>
 </body>
 </html>

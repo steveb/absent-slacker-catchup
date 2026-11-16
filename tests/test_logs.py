@@ -5,9 +5,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
+from bs4 import BeautifulSoup
 
 from asc.http import HttpError
-from asc.logs import collect, log_url, parse_log_html
+from asc.logs import collect, log_url, parse_log_html, parse_message_from_tr
 
 WINDOW_END = datetime(2026, 11, 15, 11, 0, tzinfo=timezone.utc)
 WINDOW_START = datetime(2026, 11, 15, 9, 0, tzinfo=timezone.utc)
@@ -68,6 +69,28 @@ def test_parse_log_html_skips_malformed_rows(load_fixture):
         "build-bot",
         "carol",
     ]
+
+
+def test_parse_log_html_keeps_spacing_before_links(load_fixture):
+    messages = list(parse_log_html(load_fixture("irclog-synthetic.html")))
+    bob = next(message for message in messages if message.nickname == "bob")
+
+    assert "deployment finish?\xa0\xa0https://example.com/1" in bob.text
+
+
+def test_parse_message_preserves_spacing_around_links():
+    soup = BeautifulSoup(
+        '<table><tr id="t2026-11-15T10:00:00">'
+        '<th class="nick">alice</th>'
+        '<td class="text">see <a href="https://example.com/1">'
+        "https://example.com/1</a> now</td></tr></table>",
+        "html.parser",
+    )
+
+    message = parse_message_from_tr(soup.find("tr"))
+
+    assert message is not None
+    assert message.text == "see https://example.com/1 now"
 
 
 def test_parse_log_html_without_table_is_empty():

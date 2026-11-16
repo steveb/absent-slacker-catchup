@@ -9,15 +9,40 @@ from typing import Any
 
 import markdown
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+from markdown.extensions import Extension
+from markdown.treeprocessors import Treeprocessor
 
 from .config import Config
-from .links import linkify_markdown, linkify_text
+from .links import (
+    launchpad_project_for,
+    linkify_markdown,
+    linkify_references,
+    linkify_text,
+)
 from .models import Report
 from .timeutil import format_local
 
 LOG = logging.getLogger(__name__)
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
+
+
+class _NewTabLinks(Treeprocessor):
+    """Open every link in the rendered answer in a new tab."""
+
+    def run(self, root):
+        for anchor in root.iter("a"):
+            anchor.set("target", "_blank")
+            rel = anchor.get("rel", "").split()
+            if "noopener" not in rel:
+                rel.append("noopener")
+            anchor.set("rel", " ".join(rel).strip())
+        return root
+
+
+class _NewTabLinksExtension(Extension):
+    def extendMarkdown(self, md):  # noqa: N802 - Markdown API name
+        md.treeprocessors.register(_NewTabLinks(md), "newtablinks", 0)
 
 
 def _environment() -> Environment:
@@ -29,10 +54,29 @@ def _environment() -> Environment:
     )
 
 
-def summary_to_html(summary: str) -> str:
-    """Convert the markdown answer into HTML, hyperlinking bare URLs."""
+def summary_to_html(
+    summary: str,
+    cfg: Config | None = None,
+    *,
+    channel: str | None = None,
+) -> str:
+    """Convert the markdown answer into HTML, hyperlinking bare URLs.
+
+    Review/change numbers and bug numbers written as plain text are turned into
+    Gerrit and Launchpad links first.
+    """
+    cfg = cfg or Config()
+    subject = channel or cfg.channel
+    linked = linkify_references(
+        summary,
+        gerrit_base_url=cfg.gerrit_base_url,
+        launchpad_base_url=cfg.launchpad_base_url,
+        launchpad_project=cfg.launchpad_project
+        or launchpad_project_for(subject),
+    )
     return markdown.markdown(
-        linkify_markdown(summary), extensions=["nl2br", "fenced_code"]
+        linkify_markdown(linked),
+        extensions=["nl2br", "fenced_code", _NewTabLinksExtension()],
     )
 
 
@@ -61,7 +105,7 @@ def build_context(
             {**message.view(), "text_html": linkify_text(message.text)}
             for message in log.messages
         ],
-        "summary_html": summary_to_html(report.summary),
+        "summary_html": summary_to_html(report.summary, cfg, channel=log.channel),
         "thinking": report.thinking,
         "thinking_html": linkify_text(report.thinking),
         "errors": report.errors,

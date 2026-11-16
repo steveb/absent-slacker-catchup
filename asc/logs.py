@@ -48,7 +48,10 @@ def parse_message_from_tr(row: Tag) -> Message | None:
     return Message(
         timestamp=timestamp,
         nickname=nick_cell.get_text(strip=True),
-        text=text_cell.get_text(strip=True),
+        # get_text(strip=True) would eat the non-breaking spaces the archive
+        # puts between prose and pasted URLs, so concatenate first and only
+        # trim the outer edges.
+        text=text_cell.get_text().strip(),
     )
 
 

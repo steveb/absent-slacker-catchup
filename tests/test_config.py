@@ -30,6 +30,9 @@ def test_defaults():
     assert cfg.summary_model == DEFAULT_SUMMARY_MODEL
     assert cfg.api_key_env == DEFAULT_API_KEY_ENV
     assert cfg.max_tokens == 32768
+    assert cfg.gerrit_base_url == "https://review.opendev.org"
+    assert cfg.launchpad_base_url == "https://bugs.launchpad.net"
+    assert cfg.launchpad_project == ""
 
 
 def test_load_config_without_path_returns_defaults():
@@ -65,6 +68,11 @@ model = "tiny"
 api_key_env = "OTHER_KEY"
 max_tokens = 10
 
+[links]
+gerrit_base_url = "https://review.example"
+launchpad_base_url = "https://bugs.example"
+launchpad_project = "nova"
+
 [tts]
 model = "voice.onnx"
 model_dir = "/models"
@@ -84,6 +92,9 @@ model_dir = "/models"
     assert cfg.summary_model == "tiny"
     assert cfg.api_key_env == "OTHER_KEY"
     assert cfg.max_tokens == 10
+    assert cfg.gerrit_base_url == "https://review.example"
+    assert cfg.launchpad_base_url == "https://bugs.example"
+    assert cfg.launchpad_project == "nova"
     assert cfg.tts_model == "voice.onnx"
     assert cfg.tts_model_dir == Path("/models")
 

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
+from .links import DEFAULT_GERRIT_BASE_URL, DEFAULT_LAUNCHPAD_BASE_URL
 
 LOG = logging.getLogger(__name__)
 
@@ -57,6 +58,12 @@ class Config:
     summary_model: str = DEFAULT_SUMMARY_MODEL
     api_key_env: str = DEFAULT_API_KEY_ENV
     max_tokens: int = 32768
+
+    # links in the rendered summary
+    gerrit_base_url: str = DEFAULT_GERRIT_BASE_URL
+    launchpad_base_url: str = DEFAULT_LAUNCHPAD_BASE_URL
+    # Empty means "derive from an #openstack-… channel name".
+    launchpad_project: str = ""
 
     # text to speech
     tts_model: str = DEFAULT_TTS_MODEL
@@ -114,6 +121,11 @@ def _apply_section(cfg: Config, name: str, values: dict[str, Any]) -> None:
             "model": (str, "summary_model"),
             "api_key_env": (str, "api_key_env"),
             "max_tokens": (int, "max_tokens"),
+        },
+        "links": {
+            "gerrit_base_url": (str, "gerrit_base_url"),
+            "launchpad_base_url": (str, "launchpad_base_url"),
+            "launchpad_project": (str, "launchpad_project"),
         },
         "tts": {
             "model": (str, "tts_model"),

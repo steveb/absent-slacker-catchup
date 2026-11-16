@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from .timeutil import format_local, iso_utc
+from .timeutil import ensure_utc, format_local, iso_utc
 
 
 @dataclass(slots=True)
@@ -50,9 +50,16 @@ class Message:
         return f"{timestamp}{context}{msg}"
 
     def view(self) -> dict[str, str]:
-        """Return the fields needed by the HTML template."""
+        """Return the fields needed by the HTML template.
+
+        Chat times are shown in the local timezone, matching the window header.
+        The anchor stays UTC so it is stable regardless of where the page is
+        rendered.
+        """
+        local = ensure_utc(self.timestamp).astimezone()
         return {
-            "time": self.timestamp.strftime("%H:%M"),
+            "time": local.strftime("%H:%M"),
+            "timestamp": format_local(self.timestamp),
             "nickname": self.nickname,
             "text": self.text,
             "anchor": self.timestamp.strftime("%Y-%m-%dT%H:%M:%S"),

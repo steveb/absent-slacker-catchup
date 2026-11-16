@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
+from bs4 import BeautifulSoup
+
 from asc.models import ChatLog, Message, Report
 from asc.render import render_page, summary_to_html, write_report
 
@@ -70,7 +72,31 @@ def test_summary_urls_are_hyperlinked(cfg):
         include_summary=True,
     )
 
-    assert '<a href="https://bugs.launchpad.net/ironic/+bug/1">' in html
+    assert '<a href="https://bugs.launchpad.net/ironic/+bug/1"' in html
+
+
+def test_summary_reference_numbers_are_linked(cfg):
+    html = render_page(
+        make_report(summary="Ironic change 1013352 and bug 2123456"),
+        cfg,
+        include_summary=True,
+    )
+
+    assert '<a href="https://review.opendev.org/c/1013352"' in html
+    assert '<a href="https://bugs.launchpad.net/ironic/+bug/2123456"' in html
+
+
+def test_all_links_open_in_a_new_tab(cfg):
+    html = render_page(
+        make_report(summary="change 1013352 and https://example.com/x"),
+        cfg,
+        include_summary=True,
+    )
+
+    assert '<base target="_blank">' in html
+    anchors = BeautifulSoup(html, "html.parser").find_all("a")
+    assert anchors
+    assert all(anchor.get("target") == "_blank" for anchor in anchors)
 
 
 def test_thinking_urls_are_hyperlinked(cfg):

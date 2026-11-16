@@ -42,6 +42,15 @@ api_key_env = "ENMAAS_KEY"
 # only allows longer output and costs nothing unless the model writes it.
 max_tokens = 32768
 
+[links]
+# Review numbers ("change 1013352") become Gerrit links, bug numbers
+# ("bug 2123456") become Launchpad links.
+gerrit_base_url = "https://review.opendev.org"
+launchpad_base_url = "https://bugs.launchpad.net"
+# Empty derives the project from an #openstack-… channel name (ironic for
+# #openstack-ironic). Launchpad redirects to the right project if this is wrong.
+launchpad_project = ""
+
 [tts]
 # The Piper voice model. A relative name is looked up in model_dir, then in the
 # current directory.
