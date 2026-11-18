@@ -8,7 +8,7 @@ import re
 from collections.abc import Callable
 from datetime import datetime
 
-from .config import Config
+from .config import Config, key_fingerprint
 from .timeutil import format_local
 
 LOG = logging.getLogger(__name__)
@@ -208,6 +208,13 @@ def summarize(
                 answer.append(content)
                 if on_token is not None:
                     on_token(content)
+    except (openai.AuthenticationError, openai.PermissionDeniedError) as exc:
+        raise SummaryError(
+            f"{cfg.base_url} refused {cfg.api_key_env} "
+            f"(sha256:{key_fingerprint(api_key)}); the key may have been "
+            f"rotated. Compare it with the one your shell uses ('asc status'): "
+            f"{exc}"
+        ) from exc
     except Exception as exc:
         raise SummaryError(
             f"summary request to {cfg.base_url} failed: {exc}"

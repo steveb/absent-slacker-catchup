@@ -37,6 +37,11 @@ ASC_CMD ?= $(shell \
 # --output-type SPEECH_SUMMARY (unless you configure an absolute --tts-model).
 WORKDIR ?= $(CURDIR)
 
+# Wrapper that sources the API key env files (~/.config/claude-code-vertex/env.sh
+# and ~/.config/asc/env) before exec'ing the CLI. Used by the local targets and
+# the systemd unit alike, so a rotated ENMAAS_KEY is picked up on every run.
+ASC_RUN ?= $(CURDIR)/contrib/asc-run.sh
+
 # `asc fetch` arguments.
 CHANNEL     ?= \#openstack-ironic
 HOURS       ?= 24
@@ -56,6 +61,7 @@ BROWSER_ARGS := $(if $(filter-out 0,$(OPEN_BROWSER)),--open,)
 # ourselves. Use `override` because these may be set on the command line.
 expand_tilde = $(if $(filter ~,$(1)),$(HOME),$(patsubst ~/%,$(HOME)/%,$(1)))
 override ASC_CMD     := $(call expand_tilde,$(ASC_CMD))
+override ASC_RUN     := $(call expand_tilde,$(ASC_RUN))
 override VENV        := $(call expand_tilde,$(VENV))
 override WORKDIR     := $(call expand_tilde,$(WORKDIR))
 override OUTPUT_DIR  := $(call expand_tilde,$(OUTPUT_DIR))
@@ -72,7 +78,7 @@ SYSTEMCTL ?= systemctl --user
 
 .DEFAULT_GOAL := help
 .PHONY: help setup test run run-long clean install-timer uninstall-timer \
-	reinstall status start logs enable disable install uninstall
+	reinstall status check-timer start logs enable disable install uninstall
 
 help:
 	@echo "Targets:"
@@ -84,6 +90,7 @@ help:
 	@echo "  uninstall-timer Stop, disable and remove $(UNIT_NAME).service/.timer"
 	@echo "  reinstall       uninstall-timer + install-timer (after changing settings)"
 	@echo "  status          Show the state of the timer"
+	@echo "  check-timer     Diff the installed units against the current settings"
 	@echo "  start           Run $(UNIT_NAME).service once, now"
 	@echo "  logs            Follow the journal for $(UNIT_NAME).service"
 	@echo "  enable          Enable and start the timer without re-rendering units"
@@ -92,6 +99,7 @@ help:
 	@echo ""
 	@echo "Settings (override on the command line, e.g. 'make run HOURS=24'):"
 	@echo "  ASC_CMD=$(ASC_CMD)"
+	@echo "  ASC_RUN=$(ASC_RUN)"
 	@echo "  WORKDIR=$(WORKDIR)"
 	@echo "  CHANNEL=$(CHANNEL)  HOURS=$(HOURS)  OUTPUT_TYPE=$(OUTPUT_TYPE)"
 	@echo "  OUTPUT_DIR=$(OUTPUT_DIR)  OPEN_BROWSER=$(OPEN_BROWSER)"
@@ -109,11 +117,11 @@ test: setup
 	$(PY) -m pytest
 
 run: setup
-	$(ASC_CMD) fetch --hours $(HOURS) --output-type $(OUTPUT_TYPE) \
+	"$(ASC_RUN)" $(ASC_CMD) fetch --hours $(HOURS) --output-type $(OUTPUT_TYPE) \
 	    --output-directory "$(OUTPUT_DIR)" $(BROWSER_ARGS) "$(CHANNEL)"
 
 run-long: setup
-	$(ASC_CMD) fetch --hours $(LONG_HOURS) --output-type $(OUTPUT_TYPE) \
+	"$(ASC_RUN)" $(ASC_CMD) fetch --hours $(LONG_HOURS) --output-type $(OUTPUT_TYPE) \
 	    --output-directory "$(OUTPUT_DIR)" $(BROWSER_ARGS) "$(CHANNEL)"
 
 clean:
@@ -126,6 +134,7 @@ define render_unit
 	@mkdir -p "$(SYSTEMD_DIR)"
 	@sed -e 's|@UNIT_NAME@|$(UNIT_NAME)|g' \
 	     -e 's|@ASC_CMD@|$(ASC_CMD)|g' \
+	     -e 's|@ASC_RUN@|$(ASC_RUN)|g' \
 	     -e 's|@WORKDIR@|$(WORKDIR)|g' \
 	     -e 's|@CHANNEL@|$(CHANNEL)|g' \
 	     -e 's|@HOURS@|$(HOURS)|g' \
@@ -147,10 +156,15 @@ install-timer:
 	    { echo "error: no systemd user manager is reachable for this session"; exit 1; }
 	@test -x "$(ASC_EXE)" || \
 	    { echo "error: '$(ASC_EXE)' is not executable."; \
-	      echo "       Run 'make setup' first, then re-run with ASC_CMD=<path to", \
+	      echo "       Run 'make setup' first, then re-run with ASC_CMD=<path to"; \
 	      echo "       asc>, or set VENV=<venv dir>."; exit 1; }
 	@test -d "$(WORKDIR)" || \
 	    { echo "error: WORKDIR '$(WORKDIR)' does not exist"; exit 1; }
+	@test -x "$(ASC_RUN)" || \
+	    { echo "error: ASC_RUN '$(ASC_RUN)' is not executable."; \
+	      echo "       Expected contrib/asc-run.sh in the checkout; run"; \
+	      echo "       'chmod +x contrib/asc-run.sh' or set ASC_RUN=<path>."; \
+	      exit 1; }
 	@$(ASC_CMD) --version >/dev/null 2>&1 || \
 	    echo "warning: '$(ASC_CMD) --version' failed; the timer may not run correctly"
 	$(call render_unit,$(SERVICE_TEMPLATE),$(SERVICE_UNIT))
@@ -176,6 +190,29 @@ reinstall: uninstall-timer install-timer
 status:
 	@$(SYSTEMCTL) status "$(UNIT_NAME).timer" --no-pager || true
 	@$(SYSTEMCTL) list-timers --no-pager "$(UNIT_NAME).timer" || true
+	@$(MAKE) --no-print-directory check-timer || true
+
+# Units are rendered when they are installed, so a checkout that has moved on
+# (a new ExecStart, a changed channel) leaves a stale unit behind. This is the
+# first thing to check when the timer behaves differently from `make run`.
+check-timer:
+	@if [ ! -f "$(SERVICE_UNIT)" ] || [ ! -f "$(TIMER_UNIT)" ]; then \
+	    echo "units are not installed in $(SYSTEMD_DIR)"; \
+	    echo "  install them with 'make install-timer'"; \
+	    exit 1; \
+	fi
+	$(call render_unit,$(SERVICE_TEMPLATE),$(SERVICE_UNIT).new)
+	$(call render_unit,$(TIMER_TEMPLATE),$(TIMER_UNIT).new)
+	@status=0; \
+	if ! diff -u "$(SERVICE_UNIT)" "$(SERVICE_UNIT).new"; then status=1; fi; \
+	if ! diff -u "$(TIMER_UNIT)" "$(TIMER_UNIT).new"; then status=1; fi; \
+	rm -f "$(SERVICE_UNIT).new" "$(TIMER_UNIT).new"; \
+	if [ $$status -eq 0 ]; then \
+	    echo "installed units match the current settings"; \
+	else \
+	    echo "installed units are stale: run 'make reinstall'"; \
+	fi; \
+	exit $$status
 
 start:
 	@$(SYSTEMCTL) start "$(UNIT_NAME).service"

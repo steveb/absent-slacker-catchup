@@ -15,6 +15,7 @@ from asc.config import (
     DEFAULT_TTS_MODEL,
     Config,
     default_config_path,
+    key_fingerprint,
     load_config,
 )
 
@@ -161,3 +162,10 @@ def test_default_config_path(tmp_path):
     config = tmp_path / "config.toml"
     config.write_text("", encoding="utf-8")
     assert default_config_path(tmp_path) == config
+
+
+def test_key_fingerprint_is_stable_and_one_way():
+    assert key_fingerprint("sk-one") == key_fingerprint("sk-one")
+    assert key_fingerprint("sk-one") != key_fingerprint("sk-two")
+    assert len(key_fingerprint("sk-one")) == 12
+    assert "sk-one" not in key_fingerprint("sk-one")

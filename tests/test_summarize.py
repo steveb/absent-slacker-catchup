@@ -218,3 +218,28 @@ def test_messages_fall_back_to_the_configured_channel(cfg):
     messages = build_messages("chat", cfg)
     assert f"Channel: {cfg.channel}" in messages[1]["content"]
     assert "the requested period" in messages[1]["content"]
+
+
+def test_authentication_failure_names_the_key_without_leaking_it(monkeypatch):
+    import httpx
+    import openai
+
+    from asc.config import Config, key_fingerprint
+
+    def factory(**kwargs):
+        raise openai.AuthenticationError(
+            "Error code: 401 - Unauthorized",
+            response=httpx.Response(
+                401, request=httpx.Request("POST", "https://example.test/v1")
+            ),
+            body=None,
+        )
+
+    monkeypatch.setattr("openai.OpenAI", factory)
+    with pytest.raises(SummaryError) as excinfo:
+        summarize("hello", Config())
+
+    message = str(excinfo.value)
+    assert key_fingerprint("test-key") in message
+    assert "test-key" not in message
+    assert "401" in message

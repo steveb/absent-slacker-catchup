@@ -12,7 +12,13 @@ from datetime import datetime
 from pathlib import Path
 
 from . import __version__
-from .config import OUTPUT_TYPES, Config, default_config_path, load_config
+from .config import (
+    OUTPUT_TYPES,
+    Config,
+    default_config_path,
+    key_fingerprint,
+    load_config,
+)
 from .http import HttpClient
 from .logs import collect
 from .models import ChatLog, Report
@@ -405,7 +411,8 @@ def cmd_status(args: argparse.Namespace, cfg: Config, config_path: Path | None) 
     print(f"  output dir    {cfg.output_dir}")
     print(f"  summary api   {cfg.base_url}")
     print(f"  summary model {cfg.summary_model}")
-    key_state = "set" if os.environ.get(cfg.api_key_env) else "missing"
+    key = os.environ.get(cfg.api_key_env, "").strip()
+    key_state = f"set, sha256:{key_fingerprint(key)}" if key else "missing"
     print(f"  summary key   {cfg.api_key_env} ({key_state})")
     print(f"  voice model   {voice} ({'found' if voice.exists() else 'missing'})")
     return 0

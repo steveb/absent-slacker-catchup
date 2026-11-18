@@ -36,8 +36,9 @@ make run          # writes output/<channel>-<timestamp>/ and opens the page
 
 - Python 3.11 or newer.
 - An API key for the summary endpoint in `ENMAAS_KEY`, for `SUMMARY` and
-  `SPEECH_SUMMARY`. Any OpenAI-compatible endpoint and model can be used
-  instead; see [Configuration](#configuration).
+  `SPEECH_SUMMARY`. It is read from the env files described in
+  [Scheduling](#scheduling). Any OpenAI-compatible endpoint and model can be
+  used instead; see [Configuration](#configuration).
 - A Piper voice model for `SPEECH_SUMMARY`. The model is not committed; put it
   in `~/.local/share/asc/models/` (or set `tts.model`/`tts.model_dir`):
 
@@ -152,8 +153,26 @@ make uninstall-timer
 
 The Makefile renders `contrib/asc.service` and `contrib/asc.timer` into
 `~/.config/systemd/user/` with the chosen channel, window, output directory and
-command, so no hand editing is needed. The service reads its API key from
-`~/.config/asc/env`:
+command, so no hand editing is needed.
+
+The service runs the CLI through `contrib/asc-run.sh`, which sources the key
+files on every run (both optional, later wins):
+
+- `~/.config/asc/env` - a per-project override, if you have one
+- `~/.config/claude-code-vertex/env.sh` - the shared, rotated `ENMAAS_KEY`
+
+The files are sourced, not parsed as a systemd `EnvironmentFile=`, so any shell
+syntax works:
+
+```bash
+ENMAAS_KEY=...
+export ENMAAS_KEY='...'
+```
+
+A rotated key is picked up on the next run; nothing needs reinstalling.
+`make run`, `make run-long` and `./openstack-ironic.sh` go through the same
+wrapper, so they read the same files. To keep the key in the per-project file
+instead:
 
 ```bash
 install -d -m 700 ~/.config/asc
@@ -177,14 +196,47 @@ loginctl enable-linger "$USER"
 ### cron
 
 ```
-30 6 * * * cd $HOME/dev/localstack/absent-slacker-catchup && set -a && . $HOME/.config/asc/env && set +a && .venv/bin/asc fetch --hours 24 --output-type SPEECH_SUMMARY --no-open >> output/cron.log 2>&1
+30 6 * * * cd $HOME/dev/localstack/absent-slacker-catchup && ./contrib/asc-run.sh .venv/bin/asc fetch --hours 24 --output-type SPEECH_SUMMARY --no-open >> output/cron.log 2>&1
 ```
 
-`openstack-ironic.sh` is a small wrapper for interactive use: it loads
-`~/.config/asc/env` when present, changes to the checkout, prefers
-`.venv/bin/asc`, falls back to `python3 -m asc`, and forwards any extra
-arguments (`./openstack-ironic.sh --no-open`, `hours=48`, `channel='#openstack-nova'`).
-The browser is opened only when the CLI detects a graphical session.
+`openstack-ironic.sh` is a small wrapper for interactive use: it loads the key
+through `contrib/asc-run.sh` (the same files the timer reads), changes to the
+checkout, prefers `.venv/bin/asc`, falls back to `python3 -m asc`, and forwards
+any extra arguments (`./openstack-ironic.sh --no-open`, `hours=48`,
+`channel='#openstack-nova'`). The browser is opened only when the CLI detects a
+graphical session.
+
+### 401 from the endpoint
+
+A 401 after the key was rotated usually means the timer is still using a
+different key from your shell. In order:
+
+1. `make check-timer` — units are rendered at install time, so a checkout that
+   has changed since `make install-timer` leaves a stale `ExecStart` behind (for
+   example one that never goes through `contrib/asc-run.sh`). It prints a diff
+   and points at `make reinstall`.
+2. Compare fingerprints. The failing run names the key it sent (never the key
+   itself), and every systemd run logs where the key came from:
+
+   ```bash
+   journalctl --user -u asc.service | grep -E 'asc-run|refused'
+   # asc-run: ENMAAS_KEY sha256:5be3b05a2339 from /home/you/.config/claude-code-vertex/env.sh
+   ```
+
+   `asc status` shows the fingerprint of the key your shell loads. If they
+   differ, the timer is reading a different file. When either env file exists it
+   is authoritative: an `ENMAAS_KEY` inherited from
+   `systemctl --user set-environment` is dropped rather than used.
+3. Check that rotation writes to the file the service sources. A rotation that
+   only exports the key in an interactive shell (a `.bashrc` line) never reaches
+   the timer.
+4. If rotation mints a short-lived token, check its expiry and the tool that
+   mints it. The wrapper sources the file on every run but cannot renew an
+   expired token, and a systemd unit gets a smaller `PATH` than a login shell.
+   The wrapper prepends `~/.local/bin`, `~/bin` and `~/google-cloud-sdk/bin`;
+   for anything else run `systemctl --user set-environment
+   ASC_ENV_PATH=/opt/tools/bin` (add `ASC_ENV_PATH` to the unit's `Environment=`
+   to make it permanent).
 
 ## How it works
 

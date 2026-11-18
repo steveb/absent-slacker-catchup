@@ -9,10 +9,10 @@ Type=oneshot
 # systemd does not unquote path settings such as WorkingDirectory, so keep this
 # value bare (a quoted value is rejected as "path is not absolute").
 WorkingDirectory=@WORKDIR@
-ExecStart=@ASC_CMD@ fetch --hours @HOURS@ --output-type @OUTPUT_TYPE@ --output-directory "@OUTPUT_DIR@" @BROWSER_ARGS@ "@CHANNEL@"
+# contrib/asc-run.sh sources ~/.config/claude-code-vertex/env.sh (the rotated
+# ENMAAS_KEY) and ~/.config/asc/env before exec'ing the CLI. Both are optional.
+ExecStart=@ASC_RUN@ @ASC_CMD@ fetch --hours @HOURS@ --output-type @OUTPUT_TYPE@ --output-directory "@OUTPUT_DIR@" @BROWSER_ARGS@ "@CHANNEL@"
 Environment=PYTHONUNBUFFERED=1
-# Put ENMAAS_KEY=... in this file (mode 600); the leading '-' makes it optional.
-EnvironmentFile=-%h/.config/asc/env
 # The summary is a side effect; failures are visible in the journal:
 #   journalctl --user -u @UNIT_NAME@.service
 Nice=10

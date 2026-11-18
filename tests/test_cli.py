@@ -320,3 +320,13 @@ def test_empty_window_skips_the_summary(monkeypatch, tmp_path):
     assert result == 0
     html = (tmp_path / "latest.html").read_text(encoding="utf-8")
     assert "No messages in this window." in html
+
+
+def test_status_shows_the_key_fingerprint(monkeypatch, capsys):
+    from asc.config import key_fingerprint
+
+    monkeypatch.setenv("ENMAAS_KEY", "a-secret-value")
+    assert cli.main(["status"]) == 0
+    out = capsys.readouterr().out
+    assert f"sha256:{key_fingerprint('a-secret-value')}" in out
+    assert "a-secret-value" not in out

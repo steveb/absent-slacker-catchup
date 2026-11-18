@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import tomllib
 from dataclasses import dataclass, field
@@ -90,6 +91,16 @@ class Config:
             if nested.exists():
                 return nested
         return candidate
+
+
+def key_fingerprint(key: str, length: int = 12) -> str:
+    """Return a short, one-way fingerprint of an API key.
+
+    The digest is safe to write to the journal or a report: it lets two keys be
+    told apart (the key the timer used and the key in an interactive shell, for
+    example) without exposing the secret.
+    """
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:length]
 
 
 def _as_list(value: Any) -> list[Any]:
